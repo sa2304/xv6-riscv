@@ -6,6 +6,8 @@
 #include "virtio.h"
 
 #define R1(r) ((volatile uint32 *)(VIRTIO1 + (r)))
+//static const uint32 VirtioNetReceiveQ = 0;
+static const uint32 VirtioNetTransmitQ = 1;
 
 struct virtio_net_queue {
   struct virtq_desc *desc;
@@ -165,6 +167,7 @@ virtio_net_init(void) {
 
     network.receive.avail->ring[network.receive.avail->idx++ % NUM] = i;
   }
+  //TODO Notify queue?
 
   // tell device that I've finished setup
   status |= VIRTIO_CONFIG_S_DRIVER_OK;
@@ -223,7 +226,7 @@ virtio_net_make_frame(void *buf, void *data, uint16 data_len, uint8 *destination
 
 void
 virtio_net_send(void *data, uint16 data_len, uint8 *destination_mac) {
-	printf("virtio_net_send: begin\n");
+  printf("virtio_net_send: begin\n");
   void *buf = kalloc();
   virtio_net_make_frame(buf, data, data_len, destination_mac, network.mac);
   printf("virtio_net_send: frame made\n");
@@ -245,7 +248,7 @@ virtio_net_send(void *data, uint16 data_len, uint8 *destination_mac) {
   __sync_synchronize();
   network.transmit.avail->idx++;
   __sync_synchronize();
-  *R1(VIRTIO_MMIO_QUEUE_NOTIFY) = 0; // value is queue number
+  *R1(VIRTIO_MMIO_QUEUE_NOTIFY) = VirtioNetTransmitQ; // value is queue number
   printf("virtio_net_send: frame put in transmitq\n");
 
   // Wait for virtio_net_intr() to say request has finished.
@@ -276,9 +279,133 @@ virtio_net_intr(void) {
   release(&network.lock);
 }
 
+void virtio_net_make_dhcp_message(uint8 *buf, uint8 op, uint8 htype, uint8 hlen, uint8 hops, uint32 xid, uint16 secs,
+                                  uint16 flags, uint32 ciaddr, uint32 yiaddr, uint32 siaddr, uint32 giaddr,
+                                  uint8 *chaddr, char *sname, char *boot_file_name) {
+  static const uint8 op_size = 1;
+  static const uint8 htype_size = 1;
+  static const uint8 hlen_size = 1;
+  static const uint8 hops_size = 1;
+  static const uint8 xid_size = 4;
+  static const uint8 secs_size = 2;
+  static const uint8 flags_size = 2;
+  static const uint8 ciaddr_size = 4;
+  static const uint8 yiaddr_size = 4;
+  static const uint8 siaddr_size = 4;
+  static const uint8 giaddr_size = 4;
+  static const uint8 chaddr_size = 16;
+  static const uint8 sname_size = 64;
+  static const uint8 file_size = 128;
+
+  uint8 *p = buf;
+  *p = op;
+  p += op_size;
+
+  *p = htype;
+  p += htype_size;
+
+  *p = hlen;
+  p += hlen_size;
+
+  *p = hops;
+  p += hops_size;
+
+  *(uint32) p = xid;
+  p += xid_size;
+
+  *(uint16) p = secs;
+  p += secs_size;
+
+  *(uint16) p = flags;
+  p += flags_size;
+
+  *(uint32) p = ciaddr;
+  p += ciaddr_size;
+
+  *(uint32) p = yiaddr;
+  p += yiaddr_size;
+
+  *(uint32) p = siaddr;
+  p += siaddr_size;
+
+  *(uint32) p = giaddr;
+  p += giaddr_size;
+
+  for (int i = 0; i < chaddr_size; ++i) {
+    *p++ = chaddr[i];
+  }
+
+  strncpy((char *) p, sname, sname_size);
+  p += sname_size;
+
+  strncpy((char *) p, boot_file_name, file_size);
+  p += file_size;
+}
+
+void virtio_net_make_ip_header(uint8 *buf, uint8 type_of_service, uint16 data_length, uint8 protocol,
+                               uint32 source_address, uint32 destination_address) {
+  const uint8 header_length = 5;  // in 32-bit words
+
+  uint8 *p = buf;
+
+  // Version 4 and header length of 5 * 4 = 20 bytes
+  *p = 0x40 | header_length;
+  ++p;
+
+  // Type of service
+  *p++ = 0;
+
+  // Total length
+  uint16 total_length = data_length + header_length * 4;
+  *(uint16) p = total_length;
+  p += sizeof(total_length);
+
+  // Identification - aids in assembling the fragments of a datagram
+  *(uint16) p = 0;
+  p += sizeof(uint16);
+
+  // Flags and Fragment offset
+  *(uint16) p = 0;
+  p += sizeof(uint16);
+
+  // Time to live
+  *p = 128;
+  ++p;
+
+  // Protocol
+  *p = protocol;
+  p += sizeof(protocol);
+
+  // Checksum (disabled)
+  *(uint16) p = 0;
+  p += sizeof(uint16);
+
+  *(uint32) p = source_address;
+  p += sizeof(source_address);
+
+  *(uint32) p = destination_address;
+  p += sizeof(destination_address);
+}
+
+void virtio_net_make_udp_header(uint8 *buf, uint16 source_port, uint16 destination_port, uint16 length,
+                                uint16 checksum) {
+  uint8* p = buf;
+  *(uint16) p = source_port;
+  p += sizeof(source_port);
+
+  *(uint16) p = destination_port;
+  p += sizeof(destination_port);
+
+  *(uint16) p = length;
+  p += sizeof(length);
+
+  *(uint16) p = checksum;
+  p += sizeof(checksum);
+}
+
 uint64
 sys_test_virtio_net_send(void) {
-  uint8 mac[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+  uint8 mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
   virtio_net_send(0, 0, mac);
 
   return 0;
