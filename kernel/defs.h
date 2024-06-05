@@ -187,7 +187,7 @@ void            virtio_disk_intr(void);
 
 // virtio_net.c
 void            virtio_net_init(void);
-void            virtio_net_send(void *data, uint16 data_len, uint8 *destination_mac);
+void            virtio_net_send(void *data, uint16 data_len, const uint8 *destination_mac);
 void            virtio_net_intr(void);
 
 // number of elements in fixed-size array
