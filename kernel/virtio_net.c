@@ -336,15 +336,9 @@ void test_virtio_net_ethernet_header_write_2() {
 
 void virtio_net_ethernet_frame_write(void *buf, void *data, uint16 data_len, const uint8 *destination_mac,
                                      const uint8 *source_mac, uint16 type) {
-  const uint16 hdr_len = sizeof(struct virtio_net_hdr);
-  printf("virtio_net_hdr length = %d\n", hdr_len);
-  struct virtio_net_hdr *hdr = (struct virtio_net_hdr *) buf;
-  memset(hdr, 0, hdr_len);
-  hdr->hdr_len = hdr_len;
+  virtio_net_ethernet_header_write(buf, destination_mac, source_mac, type);
 
-  virtio_net_ethernet_header_write(buf + hdr_len, destination_mac, source_mac, type);
-
-  uint8 *frame = (uint8 *) buf + hdr_len;
+  uint8 *frame = (uint8 *) buf;
   // Data
   memmove(&frame[ETHERNET_HEADER_SIZE], data, data_len);
 
@@ -355,15 +349,12 @@ void virtio_net_ethernet_frame_write(void *buf, void *data, uint16 data_len, con
   uint16 pad_size = (frame_size < minFrameSize) ? minFrameSize - frame_size : 0;
   memset(&frame[ETHERNET_HEADER_SIZE + data_len], 0, pad_size);
 
-  //FIXME Checksum
+  // Checksum
   *((uint32 *) &frame[ETHERNET_HEADER_SIZE + data_len + pad_size]) = 0;
-  //TODO Now we rely on VIRTIO_NET_F_CSUM feature and expect device to calculate checksum
-  hdr->flags = VIRTIO_NET_HDR_F_NEEDS_CSUM;
-  hdr->csum_start = 14 + 20;
-  hdr->csum_offset = 6;
 
+  // DEBUG PRINT
 //  printf("{ ");
-//  for (int i = 0; i < hdr->csum_offset; ++i) {
+//  for (int i = 0; i < ETHERNET_HEADER_SIZE + data_len + pad_size + sizeof(uint32); ++i) {
 //    printf("0x%x, ", *((uint8*)buf + i));
 //  }
 //  printf("}\n");
@@ -432,16 +423,16 @@ void test_virtio_net_ethernet_frame_write_2() {
   uint8 destination_address[] = {0xeb, 0xab, 0x84, 0x1c, 0x93, 0xa2};
   uint8 source_address[] = {0x26, 0xd9, 0x5a, 0x74, 0x10, 0xf7};
   // data fits in minFrameSize = 64, no padding
-  uint8 data[] = {0xa0, 0x49, 0xb9, 0x0c, 0x94, 0xf8, 0x6f, 0x4a,
-                  0x33, 0x79, 0x12, 0xb5, 0x6d, 0xb9, 0xa4, 0x77,
-                  0x78, 0xe0, 0xf8, 0x93, 0x63, 0x7f, 0xef, 0x42,
-                  0x87, 0x96, 0xae, 0xcd, 0x7f, 0x9e, 0x2d, 0xee,
-                  0xda, 0xff, 0x85, 0xae, 0xe1, 0x49, 0x0d, 0x44,
-                  0x11, 0xca, 0xc7, 0x6a, 0xd7, 0x1c};  // 46 octets
+  uint8 data[46] = {0xa0, 0x49, 0xb9, 0x0c, 0x94, 0xf8, 0x6f, 0x4a,
+                    0x33, 0x79, 0x12, 0xb5, 0x6d, 0xb9, 0xa4, 0x77,
+                    0x78, 0xe0, 0xf8, 0x93, 0x63, 0x7f, 0xef, 0x42,
+                    0x87, 0x96, 0xae, 0xcd, 0x7f, 0x9e, 0x2d, 0xee,
+                    0xda, 0xff, 0x85, 0xae, 0xe1, 0x49, 0x0d, 0x44,
+                    0x11, 0xca, 0xc7, 0x6a, 0xd7, 0x1c};  // 46 octets
   uint8 *buf = (uint8 *) kalloc();
   memset(buf, 0, PGSIZE);
 
-  virtio_net_ethernet_frame_write(buf, data, 64, destination_address, source_address, 0x2288);
+  virtio_net_ethernet_frame_write(buf, data, 46, destination_address, source_address, 0x2288);
 
   assert_memory_equal(expected, buf, 64, "test_virtio_net_ethernet_frame_write_2");
   // make sure other memory is untouched
@@ -509,7 +500,18 @@ void
 virtio_net_send(void *data, uint16 data_len, const uint8 *destination_mac) {
   printf("virtio_net_send: begin\n");
   void *buf = kalloc();
-  virtio_net_ethernet_frame_write(buf, data, data_len, destination_mac, network.mac, ETHERNET_TYPE_IPV4);
+
+  const uint16 hdr_len = sizeof(struct virtio_net_hdr);
+  printf("virtio_net_hdr length = %d\n", hdr_len);
+  struct virtio_net_hdr *hdr = (struct virtio_net_hdr *) buf;
+  memset(hdr, 0, hdr_len);
+  hdr->hdr_len = hdr_len;
+  //TODO Now we rely on VIRTIO_NET_F_CSUM feature and expect device to calculate checksum
+  hdr->flags = VIRTIO_NET_HDR_F_NEEDS_CSUM;
+  hdr->csum_start = ETHERNET_HEADER_SIZE + IP_HEADER_SIZE;
+  hdr->csum_offset = UDP_HEADER_OFFSET_CSUM;
+
+  virtio_net_ethernet_frame_write(buf + hdr_len, data, data_len, destination_mac, network.mac, ETHERNET_TYPE_IPV4);
   printf("virtio_net_send: frame made\n");
 
   // Put buffer into transmit virtqueue
