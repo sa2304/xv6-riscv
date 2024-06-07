@@ -10,6 +10,7 @@ static const uint8 ETHERNET_HEADER_OFFSET_DEST_ADDR = 0;
 static const uint8 ETHERNET_HEADER_OFFSET_SRC_ADDR = 6;
 static const uint8 ETHERNET_HEADER_OFFSET_LEN_TYPE = 12;
 static const uint8 ETHERNET_HEADER_SIZE = 14;
+static const uint16 ETHERNET_TYPE_IPV4 = 0x0800;
 
 static const uint8 IP_HEADER_OFFSET_VERSION_IHL = 0;
 static const uint8 IP_HEADER_OFFSET_TYPE_OF_SERVICE = 1;
@@ -21,7 +22,7 @@ static const uint8 IP_HEADER_OFFSET_PROTOCOL = 9;
 static const uint8 IP_HEADER_OFFSET_HEADER_CSUM = 10;
 static const uint8 IP_HEADER_OFFSET_SRC_ADDR = 12;
 static const uint8 IP_HEADER_OFFSET_DEST_ADDR = 16;
-static const uint8 IP_HEADER_OFFSET_OPTIONS = 20;
+//static const uint8 IP_HEADER_OFFSET_OPTIONS = 20;
 static const uint8 IP_HEADER_SIZE = 20;
 
 static const uint8 UDP_HEADER_OFFSET_SRC_PORT = 0;
@@ -29,6 +30,10 @@ static const uint8 UDP_HEADER_OFFSET_DEST_PORT = 2;
 static const uint8 UDP_HEADER_OFFSET_LENGTH = 4;
 static const uint8 UDP_HEADER_OFFSET_CSUM = 6;
 static const uint8 UDP_HEADER_SIZE = 8;
+
+static const uint8 DHCP_MESSAGE_CHADDR_SIZE_MAX = 16;
+static const uint8 DHCP_MESSAGE_BOOT_FILE_NAME_SIZE_MAX = 128;
+static const uint8 DHCP_MESSAGE_SNAME_SIZE_MAX = 64;
 
 static const uint8 DHCP_MESSAGE_OFFSET_OP = 0;
 static const uint8 DHCP_MESSAGE_OFFSET_HTYPE = 1;
@@ -43,14 +48,15 @@ static const uint8 DHCP_MESSAGE_OFFSET_SIADDR = 20;
 static const uint8 DHCP_MESSAGE_OFFSET_GIADDR = 24;
 static const uint8 DHCP_MESSAGE_OFFSET_CHADDR = 28;
 static const uint8 DHCP_MESSAGE_OFFSET_SNAME = 44;
-static const uint8 DHCP_MESSAGE_OFFSET_FILE = 108;
-static const uint8 DHCP_MESSAGE_OFFSET_OPTIONS = 236;
+static const uint8 DHCP_MESSAGE_OFFSET_BOOT_FILE_NAME = 108;
+//static const uint8 DHCP_MESSAGE_OFFSET_OPTIONS = 236;
+static const uint8 DHCP_MESSAGE_SIZE = 236; // does not include required DHCP options
+
 // DHCP client must handle Options field with length at least 321 octets.
 // This requirement implies that a DHCP client must be prepared to receive a message of up to 576 octets,
 // the minimum IP datagram size an IP host must be prepared to accept.
 // DHCP clients may negotiate the use of larger DHCP messages through the ’maximum DHCP message size’ option.
 
-static const uint16 ETHER_TYPE_IPV4 = 0x0800;
 static const uint8 PROTOCOL_UDP = 0x11;
 
 void assert_memory_equal(void *v1, void *v2, int n, const char *error_message_prefix) {
@@ -121,7 +127,7 @@ void test_htons_2() {
 //uint16_t ntohs(uint16_t netshort);
 
 #define R1(r) ((volatile uint32 *)(VIRTIO1 + (r)))
-static const uint8 MAC_ADDRESS_LENGTH = 6;
+#define MAC_ADDRESS_LENGTH 6
 
 //static const uint32 VirtioNetReceiveQ = 0;
 static const uint32 VirtioNetTransmitQ = 1;
@@ -294,9 +300,10 @@ virtio_net_init(void) {
 }
 
 void virtio_net_ethernet_header_write(void *buf, const uint8 *destination_mac, const uint8 *source_mac, uint16 type) {
-  memmove(&buf[ETHERNET_HEADER_OFFSET_DEST_ADDR], destination_mac, MAC_ADDRESS_LENGTH);
-  memmove(&buf[ETHERNET_HEADER_OFFSET_SRC_ADDR], source_mac, MAC_ADDRESS_LENGTH);
-  *((uint16 *) &buf[ETHERNET_HEADER_OFFSET_LEN_TYPE]) = htons(type);
+  uint8 *hdr = (uint8 *) buf;
+  memmove(&hdr[ETHERNET_HEADER_OFFSET_DEST_ADDR], destination_mac, MAC_ADDRESS_LENGTH);
+  memmove(&hdr[ETHERNET_HEADER_OFFSET_SRC_ADDR], source_mac, MAC_ADDRESS_LENGTH);
+  *((uint16 *) &hdr[ETHERNET_HEADER_OFFSET_LEN_TYPE]) = htons(type);
 }
 
 void test_virtio_net_ethernet_header_write_1() {
@@ -337,19 +344,19 @@ void virtio_net_ethernet_frame_write(void *buf, void *data, uint16 data_len, con
 
   virtio_net_ethernet_header_write(buf + hdr_len, destination_mac, source_mac, type);
 
+  uint8 *frame = (uint8 *) buf + hdr_len;
   // Data
-  memmove(&buf[ETHERNET_HEADER_SIZE], data, data_len);
-  p += data_len;
+  memmove(&frame[ETHERNET_HEADER_SIZE], data, data_len);
 
   // Padding
   const uint16 minFrameSize = 64;
   // frame_size = sizes of DestinationAddress, SourceAddress, Len, Data, Pad, Checksum
   uint16 frame_size = data_len + 2 * MAC_ADDRESS_LENGTH + 6;
   uint16 pad_size = (frame_size < minFrameSize) ? minFrameSize - frame_size : 0;
-  memset(&buf[ETHERNET_HEADER_SIZE + data_len], 0, pad_size);
+  memset(&frame[ETHERNET_HEADER_SIZE + data_len], 0, pad_size);
 
   //FIXME Checksum
-  *((uint32 *) &buf[ETHERNET_HEADER_SIZE + data_len + pad_size]) = 0;
+  *((uint32 *) &frame[ETHERNET_HEADER_SIZE + data_len + pad_size]) = 0;
   //TODO Now we rely on VIRTIO_NET_F_CSUM feature and expect device to calculate checksum
   hdr->flags = VIRTIO_NET_HDR_F_NEEDS_CSUM;
   hdr->csum_start = 14 + 20;
@@ -387,14 +394,14 @@ void test_virtio_net_ethernet_frame_write_1() {
   uint8 data[] = {0x08, 0xC0, 0x0A, 0x8C,
                   0x19, 0x95, 0x43, 0x6B, 0x73, 0x71, 0x34, 0xBB,
                   0x56, 0xE8, 0x17, 0x76, 0x08, 0xDC, 0x48, 0x36}; // 20 octets
-  void *buf = kalloc();
+  uint8 *buf = (uint8 *) kalloc();
   memset(buf, 0, PGSIZE);
 
   virtio_net_ethernet_frame_write(buf, data, 20, destination_address, source_address, 0x1234);
 
   assert_memory_equal(expecred, buf, 64, "test_virtio_net_ethernet_frame_write_1");
   // make sure other memory is untouched
-  for (int i = 64; i < PGSIZE, ++i) {
+  for (int i = 64; i < PGSIZE; ++i) {
     if (buf[i] != 0) {
       printf("test_virtio_net_ethernet_frame_write_1 memory after packet is corrupted: byte 0x%x at %d\n", buf[i], i);
       panic("assert failed");
@@ -417,7 +424,7 @@ void test_virtio_net_ethernet_frame_write_2() {
       0x78, 0xe0, 0xf8, 0x93, 0x63, 0x7f, 0xef, 0x42,
       0x87, 0x96, 0xae, 0xcd, 0x7f, 0x9e, 0x2d, 0xee,
       0xda, 0xff, 0x85, 0xae, 0xe1, 0x49, 0x0d, 0x44,
-      0x11, 0xca, 0xc7, 0x6a, 0xd7, 0x1c
+      0x11, 0xca, 0xc7, 0x6a, 0xd7, 0x1c,
 
       // Checksum
       0x00, 0x00, 0x00, 0x00};
@@ -431,14 +438,14 @@ void test_virtio_net_ethernet_frame_write_2() {
                   0x87, 0x96, 0xae, 0xcd, 0x7f, 0x9e, 0x2d, 0xee,
                   0xda, 0xff, 0x85, 0xae, 0xe1, 0x49, 0x0d, 0x44,
                   0x11, 0xca, 0xc7, 0x6a, 0xd7, 0x1c};  // 46 octets
-  void *buf = kalloc();
+  uint8 *buf = (uint8 *) kalloc();
   memset(buf, 0, PGSIZE);
 
   virtio_net_ethernet_frame_write(buf, data, 64, destination_address, source_address, 0x2288);
 
   assert_memory_equal(expected, buf, 64, "test_virtio_net_ethernet_frame_write_2");
   // make sure other memory is untouched
-  for (int i = 64; i < PGSIZE, ++i) {
+  for (int i = 64; i < PGSIZE; ++i) {
     if (buf[i] != 0) {
       printf("test_virtio_net_ethernet_frame_write_2 memory after packet is corrupted: byte 0x%x at %d\n", buf[i], i);
       panic("assert failed");
@@ -481,14 +488,14 @@ void test_virtio_net_ethernet_frame_write_3() {
                     0x03, 0x92, 0x2d, 0x9b, 0xe4, 0x9c, 0xb6, 0x02,
                     0x7c, 0xaa, 0x36, 0x2b, 0x67, 0x4d, 0xf0, 0x45,
                     0x3a, 0x2f, 0x87, 0xf5, 0xa7, 0x8f, 0x7c, 0x76};
-  void *buf = kalloc();
+  uint8 *buf = (uint8 *) kalloc();
   memset(buf, 0, PGSIZE);
 
   virtio_net_ethernet_frame_write(buf, data, 72, destination_address, source_address, 0x6004);
 
   assert_memory_equal(expected, buf, ETHERNET_HEADER_SIZE + 72 + 4, "test_virtio_net_ethernet_frame_write_3");
   // make sure other memory is untouched
-  for (int i = ETHERNET_HEADER_SIZE + 72 + 4; i < PGSIZE, ++i) {
+  for (int i = ETHERNET_HEADER_SIZE + 72 + 4; i < PGSIZE; ++i) {
     if (buf[i] != 0) {
       printf("test_virtio_net_ethernet_frame_write_3 memory after packet is corrupted: byte 0x%x at %d\n", buf[i], i);
       panic("assert failed");
@@ -502,7 +509,7 @@ void
 virtio_net_send(void *data, uint16 data_len, const uint8 *destination_mac) {
   printf("virtio_net_send: begin\n");
   void *buf = kalloc();
-  virtio_net_make_frame(buf, data, data_len, destination_mac, network.mac);
+  virtio_net_ethernet_frame_write(buf, data, data_len, destination_mac, network.mac, ETHERNET_TYPE_IPV4);
   printf("virtio_net_send: frame made\n");
 
   // Put buffer into transmit virtqueue
@@ -554,6 +561,8 @@ virtio_net_intr(void) {
   release(&network.lock);
 }
 
+#define MIN(a, b) ((a) < (b)) ? (a) : (b)
+
 //static const uint8 op_size = 1;
 //static const uint8 htype_size = 1;
 //static const uint8 hlen_size = 1;
@@ -568,47 +577,53 @@ virtio_net_intr(void) {
 //static const uint8 chaddr_size = 16;
 //static const uint8 sname_size = 64;
 //static const uint8 file_size = 128;
-//static const uint8 dhcpMessageSize = op_size + htype_size + hlen_size + hops_size + xid_size + secs_size + flags_size +
+//static const uint8 DHCP_MESSAGE_SIZE = op_size + htype_size + hlen_size + hops_size + xid_size + secs_size + flags_size +
 //    ciaddr_size + yiaddr_size + siaddr_size + giaddr_size + chaddr_size + sname_size + file_size;
 static const uint8 DHCP_OP_REQUEST = 1;
 static const uint8 DHCP_HTYPE_ETHERNET = 1;
 /** Fills DHCP message fields */
-void virtio_net_dhcp_message_write(uint8 *buf, uint8 op, uint8 htype, uint8 hlen, uint8 hops, uint32 xid, uint16 secs,
+void virtio_net_dhcp_message_write(void *buf, uint8 op, uint8 htype, uint8 hlen, uint8 hops, uint32 xid, uint16 secs,
                                    uint16 flags, uint32 ciaddr, uint32 yiaddr, uint32 siaddr, uint32 giaddr,
-                                   uint8 *chaddr, char *sname, char *boot_file_name) {
+                                   uint8 *chaddr, uint8 chaddr_size, char *sname, char *boot_file_name) {
   //FIXME Add length parameters for chaddr, sname, boot_file_name
-  memset(buf, 0, dhcpMessageSize);
-  //FIXME Use offsets to write fields
-  buf[DHCP_MESSAGE_OFFSET_OP] = op;
-  buf[DHCP_MESSAGE_OFFSET_HTYPE] = htype;
-  buf[DHCP_MESSAGE_OFFSET_HLEN] = hlen;
-  buf[DHCP_MESSAGE_OFFSET_HOPS] = hops;
-  *((uint32 *) &buf[DHCP_MESSAGE_OFFSET_XID]) = htonl(xid);
-  *((uint16 *) &buf[DHCP_MESSAGE_OFFSET_SECS]) = htons(secs);
-  *((uint16 *) &buf[DHCP_MESSAGE_OFFSET_FLAGS]) = htons(flags);
-  *((uint32 *) &buf[DHCP_MESSAGE_OFFSET_CIADDR]) = htonl(ciaddr);
-  *((uint32 *) &buf[DHCP_MESSAGE_OFFSET_YIADDR]) = htonl(yiaddr);
-  *((uint32 *) &buf[DHCP_MESSAGE_OFFSET_SIADDR]) = htonl(siaddr);
-  *((uint32 *) &buf[DHCP_MESSAGE_OFFSET_GIADDR]) = htonl(giaddr);
+  memset(buf, 0, DHCP_MESSAGE_SIZE);
 
+  uint8 *msg = (uint8 *) buf;
+  msg[DHCP_MESSAGE_OFFSET_OP] = op;
+  msg[DHCP_MESSAGE_OFFSET_HTYPE] = htype;
+  msg[DHCP_MESSAGE_OFFSET_HLEN] = hlen;
+  msg[DHCP_MESSAGE_OFFSET_HOPS] = hops;
+  *((uint32 *) &msg[DHCP_MESSAGE_OFFSET_XID]) = htonl(xid);
+  *((uint16 *) &msg[DHCP_MESSAGE_OFFSET_SECS]) = htons(secs);
+  *((uint16 *) &msg[DHCP_MESSAGE_OFFSET_FLAGS]) = htons(flags);
+  *((uint32 *) &msg[DHCP_MESSAGE_OFFSET_CIADDR]) = htonl(ciaddr);
+  *((uint32 *) &msg[DHCP_MESSAGE_OFFSET_YIADDR]) = htonl(yiaddr);
+  *((uint32 *) &msg[DHCP_MESSAGE_OFFSET_SIADDR]) = htonl(siaddr);
+  *((uint32 *) &msg[DHCP_MESSAGE_OFFSET_GIADDR]) = htonl(giaddr);
+
+  if (DHCP_MESSAGE_CHADDR_SIZE_MAX < chaddr_size) { chaddr_size = DHCP_MESSAGE_CHADDR_SIZE_MAX; }
   for (int i = 0; i < chaddr_size; ++i) {
-    *p++ = chaddr[i];
+    msg[DHCP_MESSAGE_OFFSET_CHADDR + i] = chaddr[i];
   }
 
-  if (sname) { strncpy((char *) p, sname, sname_size); }
-  p += sname_size;
+  if (sname) {
+    uint8 sname_size = MIN(strlen(sname), DHCP_MESSAGE_SNAME_SIZE_MAX);
+    strncpy((char *) &msg[DHCP_MESSAGE_OFFSET_SNAME], sname, sname_size);
+  }
 
-  if (boot_file_name) { strncpy((char *) p, boot_file_name, file_size); }
-  p += file_size;
+  if (boot_file_name) {
+    uint8 boot_file_name_size = MIN(strlen(boot_file_name), DHCP_MESSAGE_BOOT_FILE_NAME_SIZE_MAX);
+    strncpy((char *) &msg[DHCP_MESSAGE_OFFSET_BOOT_FILE_NAME], boot_file_name, boot_file_name_size);
+  }
 
-  //
+  //FIXME Implement other DHCP-message constructors which write required options
 }
 
 void test_virtio_net_dhcp_message_write_1() {
-  uint8 mac[] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-  uint8 *buf = kalloc();
+  uint8 mac[] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66};
+  void *buf = kalloc();
   virtio_net_dhcp_message_write(buf, DHCP_OP_REQUEST, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0, 1, 2, 0xABCD,
-                                0x1A2B3C4D, 0x11121314, 0x98765432, 0x00337722, mac, 0, 0);
+                                0x1A2B3C4D, 0x11121314, 0x98765432, 0x00337722, mac, 6, 0, 0);
   uint8 expected[] = {DHCP_OP_REQUEST, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0x00,
                       0x00, 0x00, 0x00, 0x01, // xid
                       0x00, 0x02, // secs
@@ -639,8 +654,8 @@ void test_virtio_net_dhcp_message_write_1() {
                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   };
 
-  assert_memory_equal(expected, buf, dhcpMessageSize, "test_virtio_net_dhcp_message_write");
-//  for (int i = 0; i < dhcpMessageSize; ++i) {
+  assert_memory_equal(expected, buf, DHCP_MESSAGE_SIZE, "test_virtio_net_dhcp_message_write");
+//  for (int i = 0; i < DHCP_MESSAGE_SIZE; ++i) {
 //    if (expected[i] != buf[i]) {
 //      printf("test_virtio_net_dhcp_message_write: expected 0x%x, got 0x%x at i=%d\n", expected[i], buf[i], i);
 //      panic("assertion failed");
@@ -656,40 +671,41 @@ void test_virtio_net_dhcp_message_write_2() {
   panic("test_virtio_net_dhcp_message_write_2");
 }
 
-void virtio_net_ip_header_write(uint8 *buf, uint8 type_of_service, uint16 data_length, uint8 protocol,
+void virtio_net_ip_header_write(void *buf, uint8 type_of_service, uint16 data_length, uint8 protocol,
                                 uint32 source_address, uint32 destination_address) {
   const uint8 header_length = IP_HEADER_SIZE / sizeof(uint32);  // in 32-bit words
 
+  uint8* hdr = (uint8*) buf; 
   // Version 4 and header length of 5 * 4 = 20 bytes
-  buf[IP_HEADER_OFFSET_VERSION_IHL] = 0x40 | header_length;
+  hdr[IP_HEADER_OFFSET_VERSION_IHL] = 0x40 | header_length;
 
   // Type of service
-  buf[IP_HEADER_OFFSET_TYPE_OF_SERVICE] = 0;
+  hdr[IP_HEADER_OFFSET_TYPE_OF_SERVICE] = 0;
 
   // Total length
   uint16 total_length = data_length + header_length * sizeof(uint32);
-  *((uint16 *) &buf[IP_HEADER_OFFSET_TOTAL_LENGTH]) = htons(total_length);
+  *((uint16 *) &hdr[IP_HEADER_OFFSET_TOTAL_LENGTH]) = htons(total_length);
 
   // Identification - aids in assembling the fragments of a datagram
-  *((uint16 *) &buf[IP_HEADER_OFFSET_IDENTIFICATION]) = 0;
+  *((uint16 *) &hdr[IP_HEADER_OFFSET_IDENTIFICATION]) = 0;
 
   // Flags and Fragment offset
-  *((uint16 *) &buf[IP_HEADER_OFFSET_FLAGS]) = 0;
+  *((uint16 *) &hdr[IP_HEADER_OFFSET_FLAGS]) = 0;
 
   // Time to live
-  buf[IP_HEADER_OFFSET_TTL] = 128;
+  hdr[IP_HEADER_OFFSET_TTL] = 128;
 
   // Protocol
-  buf[IP_HEADER_OFFSET_PROTOCOL] = protocol;
+  hdr[IP_HEADER_OFFSET_PROTOCOL] = protocol;
 
   // Checksum (disabled)
-  *((uint16 *) &buf[IP_HEADER_OFFSET_HEADER_CSUM]) = 0;
+  *((uint16 *) &hdr[IP_HEADER_OFFSET_HEADER_CSUM]) = 0;
 
   // Source address
-  *((uint32 *) &buf[IP_HEADER_OFFSET_SRC_ADDR]) = htonl(source_address);
+  *((uint32 *) &hdr[IP_HEADER_OFFSET_SRC_ADDR]) = htonl(source_address);
 
   // Destination address
-  *((uint32 *) &buf[IP_HEADER_OFFSET_DEST_ADDR]) = htonl(destination_address);
+  *((uint32 *) &hdr[IP_HEADER_OFFSET_DEST_ADDR]) = htonl(destination_address);
 }
 
 /** Returns IP address as uint32, little-endian */
@@ -716,7 +732,7 @@ void test_virtio_net_make_ip_address_2() {
 }
 
 void test_virtio_net_ip_header_write_1() {
-  uint8 *buf = (uint8 *) kalloc();
+  void *buf = (uint8 *) kalloc();
   uint8 expected[] = {
       0x45, // Version | IHL
       0x00, // Type of service
@@ -741,17 +757,18 @@ void test_virtio_net_ip_header_write_2() {
   panic("void test_virtio_net_ip_header_write_2");
 }
 
-void virtio_net_udp_header_write(uint8 *buf, uint16 source_port, uint16 destination_port, uint16 length,
+void virtio_net_udp_header_write(void *buf, uint16 source_port, uint16 destination_port, uint16 length,
                                  uint16 checksum) {
-  *((uint16 *) &buf[UDP_HEADER_OFFSET_SRC_PORT]) = htons(source_port);
-  *((uint16 *) &buf[UDP_HEADER_OFFSET_DEST_PORT]) = htons(destination_port);
-  *((uint16 *) &buf[UDP_HEADER_OFFSET_LENGTH]) = htons(length);
-  *((uint16 *) &buf[UDP_HEADER_OFFSET_CSUM]) = htons(checksum);
+  uint8 *p = (uint8 *) buf;
+  *((uint16 *) &p[UDP_HEADER_OFFSET_SRC_PORT]) = htons(source_port);
+  *((uint16 *) &p[UDP_HEADER_OFFSET_DEST_PORT]) = htons(destination_port);
+  *((uint16 *) &p[UDP_HEADER_OFFSET_LENGTH]) = htons(length);
+  *((uint16 *) &p[UDP_HEADER_OFFSET_CSUM]) = htons(checksum);
 }
 
 void test_virtio_net_udp_header_write_1() {
   void *buf = kalloc();
-  uint8 expected = {0x00, 0x44, // source port
+  uint8 expected[] = {0x00, 0x44, // source port
                     0x00, 0x43, // destination port
                     0xEE, 0xFF, // length
                     0xAB, 0xCD  // checksum
@@ -764,7 +781,7 @@ void test_virtio_net_udp_header_write_1() {
 
 void test_virtio_net_udp_header_write_2() {
   void *buf = kalloc();
-  uint8 expected = {0xAA, 0xBB, // source port
+  uint8 expected[] = {0xAA, 0xBB, // source port
                     0x12, 0x34, // destination port
                     0x11, 0x22, // length
                     0xCD, 0xDD  // checksum
@@ -779,19 +796,19 @@ void virtio_net_send_dhcp_request() {
   uint8 *dhcp_message = (uint8 *) kalloc();
   const uint8 transaction_id = 1;
   virtio_net_dhcp_message_write(dhcp_message, DHCP_OP_REQUEST, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0,
-                                transaction_id, 0, 0, 0, 0, 0, 0, network.mac, 0, 0);
+                                transaction_id, 0, 0, 0, 0, 0, 0, network.mac, 6, 0, 0);
 
   uint8 *ip_message = (uint8 *) kalloc();
-  virtio_net_udp_header_write(ip_message, 68, 67, dhcpMessageSize, 0);
-  memmove(ip_message + udpHeaderSize, dhcp_message, dhcpMessageSize);
+  virtio_net_udp_header_write(ip_message, 68, 67, DHCP_MESSAGE_SIZE, 0);
+  memmove(ip_message + UDP_HEADER_SIZE, dhcp_message, DHCP_MESSAGE_SIZE);
 
   uint8 *ethernet_data = (uint8 *) kalloc();
-  virtio_net_ip_header_write(ethernet_data, 0, dhcpMessageSize + udpHeaderSize, PROTOCOL_UDP, 0, 0xFFFFFFFF);
-  memmove(ethernet_data + IP_HEADER_SIZE, ip_message, udpHeaderSize + dhcpMessageSize);
+  virtio_net_ip_header_write(ethernet_data, 0, DHCP_MESSAGE_SIZE + UDP_HEADER_SIZE, PROTOCOL_UDP, 0, 0xFFFFFFFF);
+  memmove(ethernet_data + IP_HEADER_SIZE, ip_message, UDP_HEADER_SIZE + DHCP_MESSAGE_SIZE);
 
-  virtio_net_send(ethernet_data, IP_HEADER_SIZE + udpHeaderSize + dhcpMessageSize, macBroadcast);
+  virtio_net_send(ethernet_data, IP_HEADER_SIZE + UDP_HEADER_SIZE + DHCP_MESSAGE_SIZE, macBroadcast);
 //  uint8* ethernet_frame = (uint8 *) kalloc();
-//  virtio_net_make_frame(ethernet_frame, ethernet_data, ip_header_size + udpHeaderSize + dhcpMessageSize, macBroadcast,
+//  virtio_net_make_frame(ethernet_frame, ethernet_data, ip_header_size + UDP_HEADER_SIZE + DHCP_MESSAGE_SIZE, macBroadcast,
 //                        network.mac);
 }
 
