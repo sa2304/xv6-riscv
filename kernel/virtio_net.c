@@ -553,7 +553,7 @@ virtio_net_send(void *data, uint16 data_len, const uint8 *destination_mac) {
   }
   struct virtq_desc *desc = &network.transmit.desc[idx];
   desc->addr = (uint64) buf;
-  desc->len = PGSIZE;  //FIXME Must be Ethernet frame size
+  desc->len = hdr_len + ETHERNET_HEADER_SIZE + data_len;
   desc->flags = 0;
   desc->next = 0;
 
@@ -1033,7 +1033,7 @@ void virtio_net_send_dhcp_request() {
                                                                     network.hostname, transaction_id, "MSFT 5.0");
 
   uint8 *ip_message = (uint8 *) kalloc();
-  virtio_net_udp_header_write(ip_message, 68, 67, dhcp_message_length, 0);
+  virtio_net_udp_header_write(ip_message, 68, 67, UDP_HEADER_SIZE + dhcp_message_length, 0);
   memmove(ip_message + UDP_HEADER_SIZE, dhcp_message, dhcp_message_length);
 
   uint8 *ethernet_data = (uint8 *) kalloc();
