@@ -62,6 +62,20 @@ static const uint8 DHCP_OPTION_CLIENT_FQDN = 0x51;
 static const uint8 DHCP_OPTION_REQUESTED_IP = 0x32;
 static const uint8 DHCP_OPTION_PARAMETER_REQUEST_LIST = 0x37;
 static const uint8 DHCP_OPTION_VENDOR_CLASS_ID = 0x3C;
+
+static const uint8 DHCP_OPTION_DOMAIN_NAME_SERVER = 6;
+static const uint8 DHCP_OPTION_DOMAIN_NAME = 15;
+static const uint8 DHCP_OPTION_PERFORM_ROUTER_DISCOVER = 31;
+static const uint8 DHCP_OPTION_STATIC_ROUTE = 33;
+static const uint8 DHCP_OPTION_VENDOR_SPECIFIC_INFO = 43;
+static const uint8 DHCP_OPTION_NETBIOS_NAME_SERVER = 44;
+static const uint8 DHCP_OPTION_NETBIOS_NODE_TYPE = 46;
+static const uint8 DHCP_OPTION_NETBIOS_SCOPE = 47;
+static const uint8 DHCP_OPTION_DOMAIN_SEARCH = 119;
+static const uint8 DHCP_OPTION_CLASSLESS_STATIC_ROUTE = 121;
+static const uint8 DHCP_OPTION_MICROSOFT_PRIVATE_STATIC_ROUTE = 249;
+static const uint8 DHCP_OPTION_PRIVATE_AUTODISCOVERY = 252;
+
 static const uint8 DHCP_OPTION_END = 0xFF;
 
 // DHCP option lengths
@@ -787,9 +801,21 @@ uint16 virtio_net_dhcp_discover_write(void *buf, uint8 *client_mac_address, uint
   ptr += vendor_class_id_len;
 
   *ptr++ = DHCP_OPTION_PARAMETER_REQUEST_LIST;
-  *ptr++ = 2;
+  *ptr++ = 14;
   *ptr++ = DHCP_OPTION_SUBNET_MASK;
   *ptr++ = DHCP_OPTION_ROUTER;
+  *ptr++ = DHCP_OPTION_DOMAIN_NAME_SERVER;
+  *ptr++ = DHCP_OPTION_DOMAIN_NAME;
+  *ptr++ = DHCP_OPTION_PERFORM_ROUTER_DISCOVER;
+  *ptr++ = DHCP_OPTION_STATIC_ROUTE;
+  *ptr++ = DHCP_OPTION_VENDOR_SPECIFIC_INFO;
+  *ptr++ = DHCP_OPTION_NETBIOS_NAME_SERVER;
+  *ptr++ = DHCP_OPTION_NETBIOS_NODE_TYPE;
+  *ptr++ = DHCP_OPTION_NETBIOS_SCOPE;
+  *ptr++ = DHCP_OPTION_DOMAIN_SEARCH;
+  *ptr++ = DHCP_OPTION_CLASSLESS_STATIC_ROUTE;
+  *ptr++ = DHCP_OPTION_MICROSOFT_PRIVATE_STATIC_ROUTE;
+  *ptr++ = DHCP_OPTION_PRIVATE_AUTODISCOVERY;
 
   *ptr++ = DHCP_OPTION_END;
 
@@ -857,7 +883,11 @@ void test_virtio_net_dhcp_discover_write_1() {
 
       DHCP_OPTION_VENDOR_CLASS_ID, 8, 0x4D, 0x53, 0x46, 0x54, 0x20, 0x35, 0x2E, 0x30,  // MSFT 5.0
 
-      DHCP_OPTION_PARAMETER_REQUEST_LIST, 2, DHCP_OPTION_SUBNET_MASK, DHCP_OPTION_ROUTER,
+      DHCP_OPTION_PARAMETER_REQUEST_LIST, 14, DHCP_OPTION_SUBNET_MASK, DHCP_OPTION_ROUTER,
+      DHCP_OPTION_DOMAIN_NAME_SERVER, DHCP_OPTION_DOMAIN_NAME, DHCP_OPTION_PERFORM_ROUTER_DISCOVER,
+      DHCP_OPTION_STATIC_ROUTE, DHCP_OPTION_VENDOR_SPECIFIC_INFO, DHCP_OPTION_NETBIOS_NAME_SERVER,
+      DHCP_OPTION_NETBIOS_NODE_TYPE, DHCP_OPTION_NETBIOS_SCOPE, DHCP_OPTION_DOMAIN_SEARCH,
+      DHCP_OPTION_CLASSLESS_STATIC_ROUTE, DHCP_OPTION_MICROSOFT_PRIVATE_STATIC_ROUTE, DHCP_OPTION_PRIVATE_AUTODISCOVERY,
 
       // End
       DHCP_OPTION_END
@@ -876,7 +906,7 @@ void test_virtio_net_dhcp_discover_write_1() {
       11 /* hostname */ +
       14 /* client FQDN */ +
       10 /* vendor class id */ +
-      4 /* parameter request list */ +
+      16 /* parameter request list */ +
       1 /* end */;
   if (expected_message_length != length) {
     printf("test_virtio_net_dhcp_discover_write_1: wrong message length - %d expected, got %d\n",
