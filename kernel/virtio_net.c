@@ -53,20 +53,20 @@ static const uint8 DHCP_MESSAGE_OFFSET_BOOT_FILE_NAME = 108;
 static const uint8 DHCP_MESSAGE_SIZE = 236; // does not include required DHCP options
 static const uint32 DHCP_OPTIONS_MAGIC_COOKIE = 0x63825363; // in little-endian
 //static const uint8 DHCP_OPTION_PAD = 0;
-static const uint8 DHCP_OPTION_SUBNET_MASK = 0x1;
-static const uint8 DHCP_OPTION_ROUTER = 0x3;
+//static const uint8 DHCP_OPTION_SUBNET_MASK = 0x1;
+//static const uint8 DHCP_OPTION_ROUTER = 0x3;
 static const uint8 DHCP_OPTION_MESSAGE_TYPE = 0x35;
 static const uint8 DHCP_OPTION_CLIENT_ID = 0x3D;
 static const uint8 DHCP_OPTION_HOSTNAME = 0x0C;
 static const uint8 DHCP_OPTION_CLIENT_FQDN = 0x51;
-static const uint8 DHCP_OPTION_REQUESTED_IP = 0x32;
-static const uint8 DHCP_OPTION_PARAMETER_REQUEST_LIST = 0x37;
-static const uint8 DHCP_OPTION_VENDOR_CLASS_ID = 0x3C;
+//static const uint8 DHCP_OPTION_REQUESTED_IP = 0x32;
+//static const uint8 DHCP_OPTION_PARAMETER_REQUEST_LIST = 0x37;
+//static const uint8 DHCP_OPTION_VENDOR_CLASS_ID = 0x3C;
 static const uint8 DHCP_OPTION_END = 0xFF;
 
 // DHCP option lengths
 static const uint8 DHCP_OPTION_LENGTH_MESSAGE_TYPE = 1;
-static const uint8 DHCP_OPTION_LENGTH_REQUESTED_IP = 4;
+//static const uint8 DHCP_OPTION_LENGTH_REQUESTED_IP = 4;
 
 // Values of DHCP_OPTION_MESSAGE_TYPE
 static const uint8 DHCP_MESSAGE_TYPE_DISCOVER = 1;
@@ -743,8 +743,8 @@ void test_virtio_net_dhcp_message_write_2() {
   printf("test_virtio_net_dhcp_message_write_2 passed!\n");
 }
 
-uint16 virtio_net_dhcp_discover_write(void *buf, uint8 *client_mac_address, uint32 requested_ip, const char *hostname,
-                                      uint32 transaction_id, const char *vendor_class_id) {
+uint16 virtio_net_dhcp_discover_write(void *buf, uint8 *client_mac_address, const char *hostname,
+                                      uint32 transaction_id) {
   virtio_net_dhcp_message_write(buf, DHCP_OP_REQUEST, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0, transaction_id, 0, 0,
                                 0, 0, 0, 0, client_mac_address, MAC_ADDRESS_LENGTH, 0, 0);
   uint8 *ptr = (uint8 *) (buf + DHCP_MESSAGE_SIZE);
@@ -761,11 +761,6 @@ uint16 virtio_net_dhcp_discover_write(void *buf, uint8 *client_mac_address, uint
   memmove(ptr, client_mac_address, MAC_ADDRESS_LENGTH);
   ptr += MAC_ADDRESS_LENGTH;
 
-  *ptr++ = DHCP_OPTION_REQUESTED_IP;
-  *ptr++ = DHCP_OPTION_LENGTH_REQUESTED_IP;
-  *(uint32 *) ptr = htonl(requested_ip);
-  ptr += DHCP_OPTION_LENGTH_REQUESTED_IP;
-
   *ptr++ = DHCP_OPTION_HOSTNAME;
   uint16 hostname_size = strlen(hostname);
   *ptr++ = hostname_size;
@@ -779,17 +774,6 @@ uint16 virtio_net_dhcp_discover_write(void *buf, uint8 *client_mac_address, uint
   *ptr++ = 0;
   memmove(ptr, hostname, hostname_size);
   ptr += hostname_size;
-
-  uint8 vendor_class_id_len = strlen(vendor_class_id);
-  *ptr++ = DHCP_OPTION_VENDOR_CLASS_ID;
-  *ptr++ = vendor_class_id_len;
-  memmove(ptr, vendor_class_id, vendor_class_id_len);
-  ptr += vendor_class_id_len;
-
-  *ptr++ = DHCP_OPTION_PARAMETER_REQUEST_LIST;
-  *ptr++ = 2;
-  *ptr++ = DHCP_OPTION_SUBNET_MASK;
-  *ptr++ = DHCP_OPTION_ROUTER;
 
   *ptr++ = DHCP_OPTION_END;
 
@@ -848,16 +832,10 @@ void test_virtio_net_dhcp_discover_write_1() {
       // Client-identifier
       DHCP_OPTION_CLIENT_ID, 7, DHCP_HTYPE_ETHERNET, 0x2E, 0xB8, 0x98, 0xE4, 0x7C, 0x66,
 
-      DHCP_OPTION_REQUESTED_IP, 4, 0x00, 0x00, 0x00, 0x00,
-
       DHCP_OPTION_HOSTNAME, 9, 0x6C, 0x6F, 0x63, 0x61, 0x6C, 0x68, 0x6F, 0x73, 0x74, // localhost
 
       DHCP_OPTION_CLIENT_FQDN, 12,
       0x00, 0x00, 0x00, 0x6C, 0x6F, 0x63, 0x61, 0x6C, 0x68, 0x6F, 0x73, 0x74, // flags, A-RR, PTR-RR, localhost
-
-      DHCP_OPTION_VENDOR_CLASS_ID, 8, 0x4D, 0x53, 0x46, 0x54, 0x20, 0x35, 0x2E, 0x30,  // MSFT 5.0
-
-      DHCP_OPTION_PARAMETER_REQUEST_LIST, 2, DHCP_OPTION_SUBNET_MASK, DHCP_OPTION_ROUTER,
 
       // End
       DHCP_OPTION_END
@@ -866,17 +844,14 @@ void test_virtio_net_dhcp_discover_write_1() {
   void *buf = kalloc();
   memset(buf, 0, PGSIZE);
 
-  uint16 length = virtio_net_dhcp_discover_write(buf, chaddr, 0x00000000, "localhost", 1, "MSFT 5.0");
+  uint16 length = virtio_net_dhcp_discover_write(buf, chaddr, "localhost", 1);
 
   uint16 expected_message_length = DHCP_MESSAGE_SIZE +
       4 /* cookie */ +
       3 /* message type */ +
       9 /* client id */ +
-      6 /* requested ip */ +
       11 /* hostname */ +
       14 /* client FQDN */ +
-      10 /* vendor class id */ +
-      4 /* parameter request list */ +
       1 /* end */;
   if (expected_message_length != length) {
     printf("test_virtio_net_dhcp_discover_write_1: wrong message length - %d expected, got %d\n",
@@ -1029,8 +1004,8 @@ void test_virtio_net_udp_header_write_2() {
 void virtio_net_send_dhcp_request() {
   uint8 *dhcp_message = (uint8 *) kalloc();
   const uint8 transaction_id = 1;
-  const uint16 dhcp_message_length = virtio_net_dhcp_discover_write(dhcp_message, network.mac, 0x00000000,
-                                                                    network.hostname, transaction_id, "MSFT 5.0");
+  const uint16 dhcp_message_length = virtio_net_dhcp_discover_write(dhcp_message, network.mac,
+                                                                    network.hostname, transaction_id);
 
   uint8 *ip_message = (uint8 *) kalloc();
   virtio_net_udp_header_write(ip_message, 68, 67, UDP_HEADER_SIZE + dhcp_message_length, 0);
