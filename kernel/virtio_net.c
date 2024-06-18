@@ -11,6 +11,7 @@ static const uint8 ETHERNET_HEADER_OFFSET_SRC_ADDR = 6;
 static const uint8 ETHERNET_HEADER_OFFSET_LEN_TYPE = 12;
 static const uint8 ETHERNET_HEADER_SIZE = 14;
 static const uint16 ETHERNET_TYPE_IPV4 = 0x0800;
+static const uint16 ETHERNET_TYPE_IPV6 = 0x86DD;
 
 static const uint8 IP_HEADER_OFFSET_VERSION_IHL = 0;
 static const uint8 IP_HEADER_OFFSET_TYPE_OF_SERVICE = 1;
@@ -84,6 +85,7 @@ static const uint8 DHCP_MESSAGE_TYPE_OFFER = 2;
 // DHCP clients may negotiate the use of larger DHCP messages through the ’maximum DHCP message size’ option.
 
 static const uint8 PROTOCOL_ICMP = 0x1;
+static const uint8 PROTOCOL_IPV6_ICMP = 0x3A;
 static const uint8 PROTOCOL_UDP = 0x11;
 
 static const uint8 ICMP_TYPE_ECHO = 8;
@@ -96,6 +98,22 @@ static const uint8 ICMP_MESSAGE_ECHO_OFFSET_TYPE = 0;
 //static const uint8 ICMP_MESSAGE_ECHO_OFFSET_SEQNUM = 6;
 //static const uint8 ICMP_MESSAGE_ECHO_OFFSET_DATA = 8;
 static const uint8 ICMP_MESSAGE_ECHO_SIZE = 8;
+
+static const uint8 IPV6_VERSION = 6;
+
+//static const uint8 IPV6_HEADER_OFFSET_VERSION = 0;
+static const uint8 IPV6_HEADER_OFFSET_PAYLOAD_LENGTH = 4;
+static const uint8 IPV6_HEADER_OFFSET_NEXT_HEADER = 6;
+static const uint8 IPV6_HEADER_OFFSET_HOP_LIMIT = 7;
+static const uint8 IPV6_HEADER_OFFSET_SRC_ADDRESS = 8;
+static const uint8 IPV6_HEADER_OFFSET_DEST_ADDRESS = 24;
+static const uint8 IPV6_HEADER_SIZE = 40;
+
+#define assert_equal(a, b, error) \
+  if ((a) != (b)) { \
+    printf("Assert failed '%s' in file '%s' at line %d\n", (error), __FILE__, __LINE__); \
+    panic("assert_equal"); \
+  }
 
 void assert_memory_equal(void *v1, void *v2, int n, const char *error_message_prefix) {
   uint8 *b1 = (uint8 *) v1;
@@ -161,13 +179,55 @@ void test_htons_2() {
   printf("test_htons_2 passed!\n");
 }
 
-//uint32_t ntohl(uint32_t netlong);
-//uint16_t ntohs(uint16_t netshort);
+uint32 ntohl(uint32 netlong) {
+  return htonl(netlong);
+}
+
+void test_ntohl_1() {
+  uint32 result = ntohl(0x12345678);
+  if (0x78563412 != result) {
+    panic("test_ntohl_1");
+  }
+
+  printf("test_ntohl_1 passed!\n");
+}
+
+void test_ntohl_2() {
+  uint32 result = ntohl(0xa485b5c4);
+  if (0xc4b585a4 != result) {
+    panic("test_ntohl_2");
+  }
+
+  printf("test_ntohl_2 passed!\n");
+}
+
+uint16 ntohs(uint16 netshort) {
+  return htons(netshort);
+}
+
+void test_ntohs_1() {
+  uint16 result = ntohs(0x1234);
+  if (0x3412 != result) {
+    panic("test_ntohs_1");
+  }
+
+  printf("test_ntohs_1 passed!\n");
+}
+
+void test_ntohs_2() {
+  uint16 result = ntohs(0xb5c4);
+  if (0xc4b5 != result) {
+    panic("test_ntohs_2");
+  }
+
+  printf("test_ntohs_2 passed!\n");
+}
 
 #define R1(r) ((volatile uint32 *)(VIRTIO1 + (r)))
 #define MAC_ADDRESS_LENGTH 6
 
 //static const uint32 VirtioNetReceiveQ = 0;
+static const uint32 VirtioNetReceiveQ = 0;
 static const uint32 VirtioNetTransmitQ = 1;
 static const uint8 macBroadcast[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
@@ -229,7 +289,8 @@ static struct network {
   uint8 mac[MAC_ADDRESS_LENGTH];
   char *hostname;
   char is_transmit_done[NUM];
-  uint16 used_idx;
+  uint16 transmit_used_idx;
+  uint16 receive_used_idx;
 } network;
 
 struct virtio_net_config {
@@ -272,7 +333,8 @@ virtio_net_init(void) {
   uint32 status = 0;
 
   initlock(&network.lock, "virtio_net");
-  network.used_idx = 0;
+  network.transmit_used_idx = 0;
+  network.receive_used_idx = 0;
   network.hostname = "localhost.localdomain";
 
   if (*R1(VIRTIO_MMIO_MAGIC_VALUE) != 0x74726976 ||
@@ -324,7 +386,9 @@ virtio_net_init(void) {
   // populate receive queue with buffers
   for (int i = 0; i < NUM; ++i) {
     struct virtq_desc *desc = &network.receive.desc[i];
-    desc->addr = (uint64) kalloc();
+    void *buf = kalloc();
+    memset(buf, 0, PGSIZE);
+    desc->addr = (uint64) buf;
     desc->len = PGSIZE;
     desc->flags = VRING_DESC_F_WRITE;
     desc->next = 0;
@@ -344,6 +408,21 @@ void virtio_net_ethernet_header_write(void *buf, const uint8 *destination_mac, c
   memmove(&hdr[ETHERNET_HEADER_OFFSET_DEST_ADDR], destination_mac, MAC_ADDRESS_LENGTH);
   memmove(&hdr[ETHERNET_HEADER_OFFSET_SRC_ADDR], source_mac, MAC_ADDRESS_LENGTH);
   *((uint16 *) &hdr[ETHERNET_HEADER_OFFSET_LEN_TYPE]) = htons(type);
+}
+
+struct ethernet_header {
+  uint8 destination_mac[MAC_ADDRESS_LENGTH];
+  uint8 source_mac[MAC_ADDRESS_LENGTH];
+  uint16 type;
+};
+
+int virtio_net_ethernet_header_parse(void *buf, struct ethernet_header *header) {
+  uint8 *p = (uint8 *) buf;
+  memmove(header->destination_mac, p + ETHERNET_HEADER_OFFSET_DEST_ADDR, MAC_ADDRESS_LENGTH);
+  memmove(header->source_mac, p + ETHERNET_HEADER_OFFSET_SRC_ADDR, MAC_ADDRESS_LENGTH);
+  header->type = ntohs(*(uint16 *) (p + ETHERNET_HEADER_OFFSET_LEN_TYPE));
+
+  return 0;
 }
 
 void test_virtio_net_ethernet_header_write_1() {
@@ -372,6 +451,29 @@ void test_virtio_net_ethernet_header_write_2() {
   assert_memory_equal(expected, buf, ETHERNET_HEADER_SIZE, "test_virtio_net_ethernet_header_write_2");
 
   printf("test_virtio_net_ethernet_header_write_2 passed!\n");
+}
+
+void test_virtio_net_ethernet_header_parse_1() {
+  uint8 header_data[] = {
+      0x1C, 0x04, 0x0E, 0x7C, 0xB5, 0x49,
+      0x78, 0x35, 0xB2, 0xD0, 0x88, 0xE7,
+      0x08, 0x00};
+  struct ethernet_header header;
+  memset(header.destination_mac, 0, MAC_ADDRESS_LENGTH);
+  memset(header.source_mac, 0, MAC_ADDRESS_LENGTH);
+  header.type = 0;
+
+  virtio_net_ethernet_header_parse(header_data, &header);
+
+  assert_memory_equal(header.destination_mac, header_data, MAC_ADDRESS_LENGTH,
+                      "test_virtio_net_ethernet_header_parse_1, destination_mac");
+  assert_memory_equal(header.source_mac, header_data + MAC_ADDRESS_LENGTH, MAC_ADDRESS_LENGTH,
+                      "test_virtio_net_ethernet_header_parse_1, source_mac");
+  if (ETHERNET_TYPE_IPV4 != header.type) {
+    panic("test_virtio_net_ethernet_header_parse_1 = header type invalid");
+  }
+
+  printf("test_virtio_net_ethernet_header_parse_1 passed!\n");
 }
 
 void virtio_net_ethernet_frame_write(void *buf, void *data, uint16 data_len, const uint8 *destination_mac,
@@ -536,6 +638,87 @@ void test_virtio_net_ethernet_frame_write_3() {
   printf("test_virtio_net_ethernet_frame_write_3 passed!\n");
 }
 
+#define IPV6_ADDRESS_SIZE 16
+
+struct ipv6_header {
+//  uint8 version : 4;
+//  uint8 traffic_class : 8;
+//  uint32 flow_label : 20;
+  uint16 payload_length;
+  uint8 next_header;
+  uint8 hop_limit;
+  uint8 source_address[IPV6_ADDRESS_SIZE];
+  uint8 destination_address[IPV6_ADDRESS_SIZE];
+};
+
+int virtio_net_ipv6_header_parse(void *buf, struct ipv6_header *header) {
+  uint8 *p = (uint8 *) buf;
+  uint8 version = (*p & 0xF0) >> 4;
+  if (IPV6_VERSION != version) return -1;
+
+  // ignore traffic class & flow label
+
+  header->payload_length = ntohs(*(uint16 *) (p + IPV6_HEADER_OFFSET_PAYLOAD_LENGTH));
+  header->next_header = *(p + IPV6_HEADER_OFFSET_NEXT_HEADER);
+  header->hop_limit = *(p + IPV6_HEADER_OFFSET_HOP_LIMIT);
+  memmove(header->source_address, p + IPV6_HEADER_OFFSET_SRC_ADDRESS, IPV6_ADDRESS_SIZE);
+  memmove(header->destination_address, p + IPV6_HEADER_OFFSET_DEST_ADDRESS, IPV6_ADDRESS_SIZE);
+
+  //FIXME
+  return 0;
+}
+
+void test_virtio_net_ipv6_header_parse_1() {
+  uint8 header_data[] = {
+      0x60, 0x00, 0x00, 0x00, // Version 6 | Traffic class | Flow label
+      0x00, 0x28, // payload length
+      PROTOCOL_IPV6_ICMP, // next header
+      0x80, // hop limit
+      // source address
+      0xFD, 0xB6, 0xAD, 0x7D, 0xA0, 0xBF, 0xCF, 0xCE, 0x85, 0x7A, 0x43, 0x13, 0x8D, 0x51, 0x1F, 0x96,
+      // destination address
+      0x4B, 0x7F, 0x76, 0xA2, 0x5D, 0xC3, 0x59, 0xC6, 0x33, 0x16, 0x1A, 0x7F, 0xA2, 0x89, 0x88, 0x0A,
+  };
+  uint8 expected_source_address[IPV6_ADDRESS_SIZE] = {
+      0xFD, 0xB6, 0xAD, 0x7D, 0xA0, 0xBF, 0xCF, 0xCE, 0x85, 0x7A, 0x43, 0x13, 0x8D, 0x51, 0x1F, 0x96};
+  uint8 expected_destination_address[IPV6_ADDRESS_SIZE] = {
+      0x4B, 0x7F, 0x76, 0xA2, 0x5D, 0xC3, 0x59, 0xC6, 0x33, 0x16, 0x1A, 0x7F, 0xA2, 0x89, 0x88, 0x0A,
+  };
+  struct ipv6_header header;
+  memset(&header, 0, sizeof(struct ipv6_header));
+
+  int result = virtio_net_ipv6_header_parse(header_data, &header);
+
+  if (0 != result) {
+    panic("test_virtio_net_ipv6_header_parse_1: result must be 0");
+  }
+
+  if (0x0028 != header.payload_length) {
+    printf("test_virtio_net_ipv6_header_parse_1: wrong payload length, expected 0x%x, got 0x%x\n",
+           0x0028, header.payload_length);
+    panic("");
+  }
+
+  if (PROTOCOL_IPV6_ICMP != header.next_header) {
+    printf("test_virtio_net_ipv6_header_parse_1: wrong next header, expected 0x%x, got 0x%x\n",
+           PROTOCOL_IPV6_ICMP, header.next_header);
+    panic("");
+  }
+
+  if (0x80 != header.hop_limit) {
+    printf("test_virtio_net_ipv6_header_parse_1: wrong hop limit, expected 0x%x, got 0x%x\n",
+           0x80, header.hop_limit);
+  }
+
+  assert_memory_equal(expected_source_address, header.source_address, IPV6_ADDRESS_SIZE,
+                      "test_virtio_net_ipv6_header_parse_1");
+
+  assert_memory_equal(expected_destination_address, header.destination_address, IPV6_ADDRESS_SIZE,
+                      "test_virtio_net_ipv6_header_parse_1");
+
+  printf("test_virtio_net_ipv6_header_parse_1 passed!\n");
+}
+
 void
 virtio_net_send(void *data, uint16 data_len, const uint8 *destination_mac) {
   printf("virtio_net_send: begin\n");
@@ -588,22 +771,143 @@ virtio_net_send(void *data, uint16 data_len, const uint8 *destination_mac) {
   release(&network.lock);
 }
 
+void printIpv6Address(uint8 *addr) {
+  for (int i = 0; i < IPV6_ADDRESS_SIZE; i += 2) {
+    if (0 < i) printf(":");
+    printf("%x%x", addr[i], addr[i + 1]);
+  }
+}
+
+void printMacAddress(uint8 *mac) {
+  for (int i = 0; i < MAC_ADDRESS_LENGTH; ++i) {
+    if (0 < i) printf(":");
+    printf("%x", mac[i]);
+  }
+}
+
+void ethernet_header_print(struct ethernet_header *header) {
+  printf("[Ethernet]\n");
+  printf("EtherType: 0x%x\n", header->type);
+  printf("SourceAddress: ");
+  printMacAddress(header->source_mac);
+  printf("\n");
+  printf("DestinationAddress: ");
+  printMacAddress(header->destination_mac);
+  printf("\n");
+}
+
+void ipv6_header_print(struct ipv6_header *header) {
+  printf("[IPv6]\n");
+  printf("NextHeader: %d\n", header->next_header);
+  printf("PayloadSize: %d\n", header->payload_length);
+  printf("SourceAddress: ");
+  printIpv6Address(header->source_address);
+  printf("\n");
+  printf("DestinationAddress: ");
+  printIpv6Address(header->destination_address);
+  printf("\n");
+}
+
+struct udp_header {
+  uint16 source_port;
+  uint16 destination_port;
+  uint16 length;
+  uint16 checksum;
+};
+
+void udp_header_print(struct udp_header* header) {
+  printf("[UDP]\n");
+  printf("SourcePort: %d\n", header->source_port);
+  printf("DestinationPort: %d\n", header->destination_port);
+  printf("Length: %d\n", header->length);
+  printf("Checksum: 0x%x\n", header->checksum);
+}
+
+int virtio_net_udp_header_parse(void* buf, struct udp_header* header) {
+  uint16* udp = (uint16*) buf;
+  header->source_port = ntohs(udp[0]);
+  header->destination_port = ntohs(udp[1]);
+  header->length = ntohs(udp[2]);
+  header->checksum = ntohs(udp[3]);
+
+  return 0;
+}
+
+void test_virtio_net_udp_header_parse_1() {
+  uint8 data[] = { 0x3A, 0x3B,
+                   0x12, 0x13,
+                   0x80, 0x43,
+                   0x33, 0x34 };
+  struct udp_header header;
+
+  int result = virtio_net_udp_header_parse(data, &header);
+
+  assert_equal(0, result, "test_virtio_net_udp_header_parse_1: return value");
+  assert_equal(0x3A3B, header.source_port, "test_virtio_net_udp_header_parse_1: source_port");
+  assert_equal(0x1213, header.destination_port, "test_virtio_net_udp_header_parse_1: destination_port");
+  assert_equal(0x8043, header.length, "test_virtio_net_udp_header_parse_1: length");
+  assert_equal(0x3334, header.checksum, "test_virtio_net_udp_header_parse_1: checksum");
+
+  printf("test_virtio_net_udp_header_parse_1 passed!\n");
+}
+
 void
 virtio_net_intr(void) {
   acquire(&network.lock);
   printf("virtio_net_intr: begin\n");
 
   // handle transmitted packets
-  while (network.used_idx < network.transmit.used->idx) {
-    const uint32 id = network.transmit.used->ring[network.used_idx].id;
+  while (network.transmit_used_idx < network.transmit.used->idx) {
+    const uint32 id = network.transmit.used->ring[network.transmit_used_idx].id;
     network.is_transmit_done[id] = 1;
     printf("virtio_net_intr: frame %d transmitted\n", id);
-    ++network.used_idx;
+    ++network.transmit_used_idx;
   }
   wakeup(&network.is_transmit_done[0]);
 
   //FIXME handle received packets
   printf("[R] network.receive.used->idx = %d\n", network.receive.used->idx);
+
+  // TODO Move tests to virtio_net_init
+  test_virtio_net_ipv6_header_parse_1();
+
+  while (network.receive_used_idx < network.receive.used->idx) {
+    printf("---------------------- RECEIVED PACKET -----------------------------------------\n");
+    const uint32 id = network.receive.used->ring[network.receive_used_idx].id;
+    struct ethernet_header eth_hdr;
+    void *buf = (void *) network.receive.desc[id].addr;
+    uint8 *p_ethernet_header = (uint8 *) buf + sizeof(struct virtio_net_hdr);
+    virtio_net_ethernet_header_parse(p_ethernet_header, &eth_hdr);
+    ethernet_header_print(&eth_hdr);
+
+    if (ETHERNET_TYPE_IPV6 == eth_hdr.type) {
+      struct ipv6_header ipv6_hdr;
+      uint8* p_ipv6_header = p_ethernet_header + ETHERNET_HEADER_SIZE;
+      if (0 != virtio_net_ipv6_header_parse(p_ipv6_header, &ipv6_hdr)) {
+        printf("Failed to parse IPv6 header\n");
+      }
+      ipv6_header_print(&ipv6_hdr);
+
+      if (PROTOCOL_UDP == ipv6_hdr.next_header) {
+        test_virtio_net_udp_header_parse_1();
+        struct udp_header udp_hdr;
+        uint8* p_udp_header = p_ipv6_header + IPV6_HEADER_SIZE;
+        if (0 != virtio_net_udp_header_parse(p_udp_header, &udp_hdr)) {
+          printf("Failed to parse UDP header\n");
+        }
+        udp_header_print(&udp_hdr);
+      }
+    }
+
+    // put buffer back to receive queue
+    network.receive.avail->ring[network.receive.avail->idx % NUM] = id;
+    __sync_synchronize();
+    network.receive.avail->idx++;
+    __sync_synchronize();
+
+    ++network.receive_used_idx;
+  }
+  *R1(VIRTIO_MMIO_QUEUE_NOTIFY) = VirtioNetReceiveQ; // value is queue number
 
   release(&network.lock);
 }
@@ -1104,6 +1408,7 @@ void test_virtio_net_udp_header_write_2() {
 
   printf("test_virtio_net_udp_header_write_2 passed!\n");
 }
+
 void virtio_net_icmp_echo_write(void *buf, uint8 type) {
   memset(buf, 0, ICMP_MESSAGE_ECHO_SIZE);
   *((uint8 *) buf + ICMP_MESSAGE_ECHO_OFFSET_TYPE) = type;
@@ -1153,11 +1458,18 @@ void virtio_net_send_dhcp_request() {
 
 uint64
 sys_test_virtio_net_send(void) {
+  // TODO Move tests to virtio_net_init
   test_htonl_1();
   test_htonl_2();
 
   test_htons_1();
   test_htons_2();
+
+  test_ntohl_1();
+  test_ntohl_2();
+
+  test_ntohs_1();
+  test_ntohs_2();
 
   test_virtio_net_make_ip_address_1();
   test_virtio_net_make_ip_address_2();
@@ -1173,6 +1485,7 @@ sys_test_virtio_net_send(void) {
 
   test_virtio_net_ethernet_header_write_1();
   test_virtio_net_ethernet_header_write_2();
+  test_virtio_net_ethernet_header_parse_1();
 
   test_virtio_net_ethernet_frame_write_1();
   test_virtio_net_ethernet_frame_write_2();
@@ -1190,6 +1503,7 @@ sys_test_virtio_net_send(void) {
 
 uint64
 sys_ping(void) {
+  // TODO Move tests to virtio_net_init
   test_virtio_net_icmp_echo_write_1();
   test_virtio_net_icmp_echo_write_2();
 
