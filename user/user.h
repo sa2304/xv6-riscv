@@ -23,6 +23,7 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int test_virtio_net_send(void);
+int ping(int ip);
 
 // ulib.c
 int stat(const char*, struct stat*);

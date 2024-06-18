@@ -36,4 +36,5 @@ entry("getpid");
 entry("sbrk");
 entry("sleep");
 entry("uptime");
-entry("test_virtio_net_send")
+entry("test_virtio_net_send");
+entry("ping");

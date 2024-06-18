@@ -134,6 +134,7 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_test_virtio_net_send\
+	$U/_ping\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
@@ -163,6 +164,7 @@ QEMUOPTS += -global virtio-mmio.force-legacy=false
 QEMUOPTS += -drive file=fs.img,if=none,format=raw,id=x0
 QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
 QEMUOPTS += -device virtio-net-device,netdev=mynet,bus=virtio-mmio-bus.1
+#QEMUOPTS += -netdev user,id=mynet
 QEMUOPTS += -netdev tap,id=mynet,ifname=tap0
 
 qemu: $K/kernel fs.img

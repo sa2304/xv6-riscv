@@ -83,7 +83,19 @@ static const uint8 DHCP_MESSAGE_TYPE_OFFER = 2;
 // the minimum IP datagram size an IP host must be prepared to accept.
 // DHCP clients may negotiate the use of larger DHCP messages through the ’maximum DHCP message size’ option.
 
+static const uint8 PROTOCOL_ICMP = 0x1;
 static const uint8 PROTOCOL_UDP = 0x11;
+
+static const uint8 ICMP_TYPE_ECHO = 8;
+static const uint8 ICMP_TYPE_REPLY = 0;
+
+static const uint8 ICMP_MESSAGE_ECHO_OFFSET_TYPE = 0;
+//static const uint8 ICMP_MESSAGE_ECHO_OFFSET_CODE = 1;
+//static const uint8 ICMP_MESSAGE_ECHO_OFFSET_CHECKSUM = 2;
+//static const uint8 ICMP_MESSAGE_ECHO_OFFSET_ID = 4;
+//static const uint8 ICMP_MESSAGE_ECHO_OFFSET_SEQNUM = 6;
+//static const uint8 ICMP_MESSAGE_ECHO_OFFSET_DATA = 8;
+static const uint8 ICMP_MESSAGE_ECHO_SIZE = 8;
 
 void assert_memory_equal(void *v1, void *v2, int n, const char *error_message_prefix) {
   uint8 *b1 = (uint8 *) v1;
@@ -581,6 +593,7 @@ virtio_net_intr(void) {
   acquire(&network.lock);
   printf("virtio_net_intr: begin\n");
 
+  // handle transmitted packets
   while (network.used_idx < network.transmit.used->idx) {
     const uint32 id = network.transmit.used->ring[network.used_idx].id;
     network.is_transmit_done[id] = 1;
@@ -588,6 +601,9 @@ virtio_net_intr(void) {
     ++network.used_idx;
   }
   wakeup(&network.is_transmit_done[0]);
+
+  //FIXME handle received packets
+  printf("[R] network.receive.used->idx = %d\n", network.receive.used->idx);
 
   release(&network.lock);
 }
@@ -1088,6 +1104,32 @@ void test_virtio_net_udp_header_write_2() {
 
   printf("test_virtio_net_udp_header_write_2 passed!\n");
 }
+void virtio_net_icmp_echo_write(void *buf, uint8 type) {
+  memset(buf, 0, ICMP_MESSAGE_ECHO_SIZE);
+  *((uint8 *) buf + ICMP_MESSAGE_ECHO_OFFSET_TYPE) = type;
+}
+
+void test_virtio_net_icmp_echo_write_1() {
+  uint8 expected[] = {ICMP_TYPE_ECHO, 0, 0, 0, 0, 0, 0, 0};
+  void *buf = kalloc();
+
+  virtio_net_icmp_echo_write(buf, ICMP_TYPE_ECHO);
+
+  assert_memory_equal(expected, buf, ICMP_MESSAGE_ECHO_SIZE, "test_virtio_net_icmp_echo_write_1");
+
+  printf("test_virtio_net_icmp_echo_write_1 passed!\n");
+}
+
+void test_virtio_net_icmp_echo_write_2() {
+  uint8 expected[] = {ICMP_TYPE_REPLY, 0, 0, 0, 0, 0, 0, 0};
+  void *buf = kalloc();
+
+  virtio_net_icmp_echo_write(buf, ICMP_TYPE_REPLY);
+
+  assert_memory_equal(expected, buf, ICMP_MESSAGE_ECHO_SIZE, "test_virtio_net_icmp_echo_write_2");
+
+  printf("test_virtio_net_icmp_echo_write_2 passed!\n");
+}
 
 void virtio_net_send_dhcp_request() {
   uint8 *dhcp_message = (uint8 *) kalloc();
@@ -1142,6 +1184,26 @@ sys_test_virtio_net_send(void) {
 
   virtio_net_send_dhcp_request();
 //  virtio_net_send(0, 0, macBroadcast);
+
+  return 0;
+}
+
+uint64
+sys_ping(void) {
+  test_virtio_net_icmp_echo_write_1();
+  test_virtio_net_icmp_echo_write_2();
+
+  //FIXME Is there any error possible when we pass uint32 ip address as a signed int?
+  // Parse IP address from syscall argument and ping host
+  int ip;
+  argint(0, &ip);
+
+  void *ip_packet = kalloc();
+  uint8 *ip_header = (uint8 *) ip_packet;
+  void *icmp = ip_header + IP_HEADER_SIZE;
+  virtio_net_icmp_echo_write(icmp, ICMP_TYPE_ECHO);
+  virtio_net_ip_header_write(ip_header, 0, ICMP_MESSAGE_ECHO_SIZE, PROTOCOL_ICMP, 0, (uint32) ip);
+  virtio_net_send(ip_packet, IP_HEADER_SIZE + ICMP_MESSAGE_ECHO_SIZE, macBroadcast);
 
   return 0;
 }

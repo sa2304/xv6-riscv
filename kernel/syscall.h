@@ -21,3 +21,4 @@
 #define SYS_mkdir  20
 #define SYS_close  21
 #define SYS_test_virtio_net_send  22
+#define SYS_ping  23
