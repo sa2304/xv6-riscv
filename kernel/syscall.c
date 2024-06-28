@@ -103,6 +103,7 @@ extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
 extern uint64 sys_test_virtio_net_send(void);
 extern uint64 sys_ping(void);
+extern uint64 sys_dhcp_request(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -130,6 +131,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_close]   sys_close,
 [SYS_test_virtio_net_send] sys_test_virtio_net_send,
 [SYS_ping]    sys_ping,
+[SYS_dhcp_request]    sys_dhcp_request,
 };
 
 void

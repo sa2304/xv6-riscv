@@ -135,6 +135,7 @@ UPROGS=\
 	$U/_zombie\
 	$U/_test_virtio_net_send\
 	$U/_ping\
+	$U/_dhclient\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

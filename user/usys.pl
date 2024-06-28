@@ -38,3 +38,4 @@ entry("sleep");
 entry("uptime");
 entry("test_virtio_net_send");
 entry("ping");
+entry("dhcp_request");
