@@ -82,8 +82,8 @@ static const uint8 DHCP_MESSAGE_TYPE_DISCOVER = 1;
 static const uint8 DHCP_MESSAGE_TYPE_OFFER = 2;
 static const uint8 DHCP_MESSAGE_TYPE_REQUEST = 3;
 //static const uint8 DHCP_MESSAGE_TYPE_DECLINE = 4;
-//static const uint8 DHCP_MESSAGE_TYPE_ACK = 5;
-//static const uint8 DHCP_MESSAGE_TYPE_NAK = 6;
+static const uint8 DHCP_MESSAGE_TYPE_ACK = 5;
+static const uint8 DHCP_MESSAGE_TYPE_NAK = 6;
 //static const uint8 DHCP_MESSAGE_TYPE_RELEASE = 7;
 
 
@@ -110,6 +110,7 @@ static const uint8 ICMP_MESSAGE_ECHO_SIZE = 8;
 static const uint32 IPV4_ADDRESS_NULL = 0;
 static const uint32 IPV4_ADDRESS_BROADCAST = 0xFFFFFFFF;
 
+static const uint8 IPV4_VERSION = 4;
 static const uint8 IPV6_VERSION = 6;
 
 //static const uint8 IPV6_HEADER_OFFSET_VERSION = 0;
@@ -145,8 +146,8 @@ void test_virtio_net_dhcp_message_write_1();
 void test_virtio_net_dhcp_message_write_2();
 void test_virtio_net_udp_header_write_1();
 void test_virtio_net_udp_header_write_2();
-void test_virtio_net_ip_header_write_1();
-void test_virtio_net_ip_header_write_2();
+void test_virtio_net_ipv4_header_write_1();
+void test_virtio_net_ipv4_header_write_2();
 void test_virtio_net_ethernet_header_write_1();
 void test_virtio_net_ethernet_header_write_2();
 void test_virtio_net_ethernet_header_parse_1();
@@ -155,6 +156,8 @@ void test_virtio_net_ethernet_frame_write_2();
 void test_virtio_net_ethernet_frame_write_3();
 void test_virtio_net_dhcp_discover_write_1();
 void test_virtio_net_dhcp_offer_write_1();
+void test_virtio_net_ipv4_header_parse_1();
+void test_virtio_net_ipv4_header_parse_2();
 void test_virtio_net_ipv6_header_parse_1();
 void test_virtio_net_icmp_echo_write_1();
 void test_virtio_net_icmp_echo_write_2();
@@ -461,39 +464,40 @@ virtio_net_init(void) {
   test_virtio_net_make_ip_address_1();
   test_virtio_net_make_ip_address_2();
 
-  test_virtio_net_dhcp_message_write_1();
-  test_virtio_net_dhcp_message_write_2();
-
-  test_virtio_net_udp_header_write_1();
-  test_virtio_net_udp_header_write_2();
-
-  test_virtio_net_ip_header_write_1();
-  test_virtio_net_ip_header_write_2();
-
   test_virtio_net_ethernet_header_write_1();
   test_virtio_net_ethernet_header_write_2();
   test_virtio_net_ethernet_header_parse_1();
 
-  test_virtio_net_ethernet_frame_write_1();
-  test_virtio_net_ethernet_frame_write_2();
-  test_virtio_net_ethernet_frame_write_3();
-
-  test_virtio_net_dhcp_discover_write_1();
-
-  test_virtio_net_dhcp_offer_write_1();
-  test_virtio_net_dhcp_request_write_1();
+  test_virtio_net_ipv4_header_write_1();
+  test_virtio_net_ipv4_header_write_2();
+  test_virtio_net_ipv4_header_parse_1();
+  test_virtio_net_ipv4_header_parse_2();
   test_virtio_net_ipv6_header_parse_1();
 
-  test_virtio_net_icmp_echo_write_1();
-  test_virtio_net_icmp_echo_write_2();
+  test_virtio_net_udp_header_write_1();
+  test_virtio_net_udp_header_write_2();
   test_virtio_net_udp_header_parse_1();
 
+  test_virtio_net_dhcp_message_write_1();
+  test_virtio_net_dhcp_message_write_2();
+  test_virtio_net_dhcp_discover_write_1();
+  test_virtio_net_dhcp_offer_write_1();
+  test_virtio_net_dhcp_request_write_1();
   test_virtio_net_dhcp_reply_parse_offer_1();
   test_virtio_net_dhcp_reply_parse_offer_2();
   test_virtio_net_dhcp_reply_parse_ack_1();
   test_virtio_net_dhcp_reply_parse_ack_2();
   test_virtio_net_dhcp_reply_parse_nak_1();
   test_virtio_net_dhcp_reply_parse_nak_2();
+
+  test_virtio_net_icmp_echo_write_1();
+  test_virtio_net_icmp_echo_write_2();
+
+  test_virtio_net_ethernet_frame_write_1();
+  test_virtio_net_ethernet_frame_write_2();
+  test_virtio_net_ethernet_frame_write_3();
+
+  printf("virtio-net tests passed\n");
 }
 
 void virtio_net_ethernet_header_write(void *buf, const uint8 *destination_mac, const uint8 *source_mac, uint16 type) {
@@ -746,8 +750,20 @@ struct ipv4_header {
 };
 
 int virtio_net_ipv4_header_parse(void* buf, struct ipv4_header* hdr) {
-  //FIXME
-  return -1;
+  uint8* header = (uint8*) buf;
+  const uint8 version = (header[IP_HEADER_OFFSET_VERSION_IHL] >> 4) & 0x0F;
+  if (IPV4_VERSION != version) return -1;
+
+//  memset(hdr, 0, sizeof(struct ipv4_header));
+  hdr->total_length = ntohs(*(uint16*) &header[IP_HEADER_OFFSET_TOTAL_LENGTH]);
+  hdr->id = ntohs(*(uint16*) &header[IP_HEADER_OFFSET_IDENTIFICATION]);
+  hdr->ttl = header[IP_HEADER_OFFSET_TTL];
+  hdr->protocol = header[IP_HEADER_OFFSET_PROTOCOL];
+  hdr->header_checksum = ntohs(*(uint16*) &header[IP_HEADER_OFFSET_HEADER_CSUM]);
+  hdr->source_address = ntohl(*(uint32*) &header[IP_HEADER_OFFSET_SRC_ADDR]);
+  hdr->destination_address = ntohl(*(uint32*) &header[IP_HEADER_OFFSET_DEST_ADDR]);
+
+  return 0;
 }
 
 void test_virtio_net_ipv4_header_parse_1() {
@@ -776,7 +792,7 @@ void test_virtio_net_ipv4_header_parse_1() {
 
 void test_virtio_net_ipv4_header_parse_2() {
   uint8 header[] = {
-      0x2C, 0x5F, 0xD5, 0x76, // Version | IHL, Type of Service, Total Length
+      0x45, 0x5F, 0xD5, 0x76, // Version | IHL, Type of Service, Total Length
       0xF9, 0x7A, 0x79, 0xCD, // ID, Flags | Fragment offset
       0x90, 0x39, 0xDB, 0xAB, // TTL, Protocol, Header Checksum
       0xA2, 0x35, 0x3C, 0x3D, // Source Address
@@ -786,14 +802,14 @@ void test_virtio_net_ipv4_header_parse_2() {
 
   int result = virtio_net_ipv4_header_parse(header, &hdr);
 
-  assert_equal(0, result, "test_virtio_net_ipv4_header_parse_1: result must be 0");
-  assert_equal(0xD576, hdr.total_length, "test_virtio_net_ipv4_header_parse_1: wrong total length");
-  assert_equal(0xF97A, hdr.id, "test_virtio_net_ipv4_header_parse_1: wrong ID");
-  assert_equal(0x90, hdr.ttl, "test_virtio_net_ipv4_header_parse_1: wrong TTL");
-  assert_equal(0x39, hdr.protocol, "test_virtio_net_ipv4_header_parse_1: wrong protocol");
-  assert_equal(0xDBAB, hdr.header_checksum, "test_virtio_net_ipv4_header_parse_1: wrong header checksum");
-  assert_equal(0xA2353C3D, hdr.source_address, "test_virtio_net_ipv4_header_parse_1: wrong source address");
-  assert_equal(0x31B81B2E, hdr.destination_address, "test_virtio_net_ipv4_header_parse_1: wrong destination address");
+  assert_equal(0, result, "test_virtio_net_ipv4_header_parse_2: result must be 0");
+  assert_equal(0xD576, hdr.total_length, "test_virtio_net_ipv4_header_parse_2: wrong total length");
+  assert_equal(0xF97A, hdr.id, "test_virtio_net_ipv4_header_parse_2: wrong ID");
+  assert_equal(0x90, hdr.ttl, "test_virtio_net_ipv4_header_parse_2: wrong TTL");
+  assert_equal(0x39, hdr.protocol, "test_virtio_net_ipv4_header_parse_2: wrong protocol");
+  assert_equal(0xDBAB, hdr.header_checksum, "test_virtio_net_ipv4_header_parse_2: wrong header checksum");
+  assert_equal(0xA2353C3D, hdr.source_address, "test_virtio_net_ipv4_header_parse_2: wrong source address");
+  assert_equal(0x31B81B2E, hdr.destination_address, "test_virtio_net_ipv4_header_parse_2: wrong destination address");
 
   printf("test_virtio_net_ipv4_header_parse_2 passed!\n");
 }
@@ -1356,6 +1372,7 @@ void test_virtio_net_dhcp_reply_parse_nak_2() {
 
 void virtio_net_parse_udp_packet(void *buf) {
   uint8 *p_udp_header = (uint8 *) buf;
+  struct udp_header udp_hdr;
   if (0 != virtio_net_udp_header_parse(p_udp_header, &udp_hdr)) {
         panic("Failed to parse UDP header");
   }
@@ -1392,7 +1409,6 @@ void virtio_net_parse_ipv6_packet(void* buf) {
 //    ipv6_header_print(&ipv6_hdr);
 
   if (PROTOCOL_UDP == ipv6_hdr.next_header) {
-    struct udp_header udp_hdr;
     uint8 *p_udp_header = p_ipv6_header + IPV6_HEADER_SIZE;
     virtio_net_parse_udp_packet(p_udp_header);
   }
@@ -1405,16 +1421,15 @@ void virtio_net_parse_ipv4_packet(void* buf) {
     panic("Failed to parse IPv4 header");
   }
 
-  if (PROTOCOL_UDP == ipv4_hdr.type) {
-    struct udp_header udp_hdr;
-    uint8 *p_udp_header = p_ipv4_header + IPV4_HEADER_SIZE;
+  if (PROTOCOL_UDP == ipv4_hdr.protocol) {
+    uint8 *p_udp_header = p_ipv4_header + IP_HEADER_SIZE;
     virtio_net_parse_udp_packet(p_udp_header);
   }
 }
 
 void virtio_net_parse_ethernet_packet(void *buf) {
   struct ethernet_header eth_hdr;
-  uint8 *p_ethernet_header = (uint8 *) buf + sizeof(struct virtio_net_hdr);
+  uint8 *p_ethernet_header = (uint8 *) buf;
   virtio_net_ethernet_header_parse(p_ethernet_header, &eth_hdr);
 //  ethernet_header_print(&eth_hdr);
   uint8 *p_ip_header = p_ethernet_header + ETHERNET_HEADER_SIZE;
@@ -1445,7 +1460,8 @@ virtio_net_intr(void) {
 //    printf("---------------------- RECEIVED PACKET -----------------------------------------\n");
     const uint32 id = network.receive.used->ring[network.receive_used_idx].id;
     void *buf = (void *) network.receive.desc[id].addr;
-    virtio_net_parse_packet(buf);
+    uint8 *p_ethernet_header = (uint8 *) buf + sizeof(struct virtio_net_hdr);
+    virtio_net_parse_ethernet_packet(p_ethernet_header);
 
     // put buffer back to receive queue
     network.receive.avail->ring[network.receive.avail->idx % NUM] = id;
@@ -1909,7 +1925,7 @@ void test_virtio_net_dhcp_request_write_1() {
   printf("test_virtio_net_dhcp_request_write_1 passed!\n");
 }
 
-void virtio_net_ip_header_write(void *buf, uint8 type_of_service, uint16 data_length, uint8 protocol,
+void virtio_net_ipv4_header_write(void *buf, uint8 type_of_service, uint16 data_length, uint8 protocol,
                                 uint32 source_address, uint32 destination_address) {
   const uint8 header_length = IP_HEADER_SIZE / sizeof(uint32);  // in 32-bit words
 
@@ -1969,7 +1985,7 @@ void test_virtio_net_make_ip_address_2() {
   printf("test_virtio_net_make_ip_address_2 passed!\n");
 }
 
-void test_virtio_net_ip_header_write_1() {
+void test_virtio_net_ipv4_header_write_1() {
   void *buf = (uint8 *) kalloc();
   uint8 expected[] = {
       0x45, // Version | IHL
@@ -1984,13 +2000,13 @@ void test_virtio_net_ip_header_write_1() {
       0xC0, 0xA8, 0x00, 0x01, // Destination address - 192.168.0.1
   };
 
-  virtio_net_ip_header_write(buf, 0xA1, 0x7810, 0x10, 0xC0A8003A, 0xC0A80001);
-  assert_memory_equal(expected, buf, IP_HEADER_SIZE, "test_virtio_net_ip_header_write_1");
+  virtio_net_ipv4_header_write(buf, 0xA1, 0x7810, 0x10, 0xC0A8003A, 0xC0A80001);
+  assert_memory_equal(expected, buf, IP_HEADER_SIZE, "test_virtio_net_ipv4_header_write_1");
 
-  printf("test_virtio_net_ip_header_write_1 passed!\n");
+  printf("test_virtio_net_ipv4_header_write_1 passed!\n");
 }
 
-void test_virtio_net_ip_header_write_2() {
+void test_virtio_net_ipv4_header_write_2() {
   uint8 expected[] = {
       0x45, // Version | IHL
       0x49,  // Type of service
@@ -2005,11 +2021,11 @@ void test_virtio_net_ip_header_write_2() {
   };
   void *buf = (uint8 *) kalloc();
 
-  virtio_net_ip_header_write(buf, 0x49, 0xF0DA, 0x26, 0xD2E30169, 0x402535DE);
+  virtio_net_ipv4_header_write(buf, 0x49, 0xF0DA, 0x26, 0xD2E30169, 0x402535DE);
 
-  assert_memory_equal(expected, buf, IP_HEADER_SIZE, "test_virtio_net_ip_header_write_2");
+  assert_memory_equal(expected, buf, IP_HEADER_SIZE, "test_virtio_net_ipv4_header_write_2");
 
-  printf("test_virtio_net_ip_header_write_2 passed!\n");
+  printf("test_virtio_net_ipv4_header_write_2 passed!\n");
 }
 
 void virtio_net_udp_header_write(void *buf, uint16 source_port, uint16 destination_port, uint16 length,
@@ -2085,7 +2101,7 @@ void virtio_net_send_dhcp_discover() {
   memmove(ip_message + UDP_HEADER_SIZE, dhcp_message, dhcp_message_length);
 
   uint8 *ethernet_data = (uint8 *) kalloc();
-  virtio_net_ip_header_write(ethernet_data, 0, dhcp_message_length + UDP_HEADER_SIZE, PROTOCOL_UDP, IPV4_ADDRESS_NULL,
+  virtio_net_ipv4_header_write(ethernet_data, 0, dhcp_message_length + UDP_HEADER_SIZE, PROTOCOL_UDP, IPV4_ADDRESS_NULL,
                              IPV4_ADDRESS_BROADCAST);
   memmove(ethernet_data + IP_HEADER_SIZE, ip_message, UDP_HEADER_SIZE + dhcp_message_length);
 
@@ -2102,7 +2118,7 @@ void virtio_net_send_dhcp_request() {
   uint8 *dhcp_message = udp_header + UDP_HEADER_SIZE;
   uint16 length = virtio_net_dhcp_request_write(dhcp_message, network.mac, network.dhcp_status.offered_ip_address, 0x1);
   virtio_net_udp_header_write(udp_header, DHCP_PORT_CLIENT, DHCP_PORT_SERVER, UDP_HEADER_SIZE + length, 0);
-  virtio_net_ip_header_write(ip_header, 0, length + UDP_HEADER_SIZE, PROTOCOL_UDP, IPV4_ADDRESS_NULL,
+  virtio_net_ipv4_header_write(ip_header, 0, length + UDP_HEADER_SIZE, PROTOCOL_UDP, IPV4_ADDRESS_NULL,
                              IPV4_ADDRESS_BROADCAST);
   virtio_net_send(buf, IP_HEADER_SIZE + UDP_HEADER_SIZE + length, macBroadcast);
 }
@@ -2125,7 +2141,7 @@ sys_ping(void) {
   uint8 *ip_header = (uint8 *) ip_packet;
   void *icmp = ip_header + IP_HEADER_SIZE;
   virtio_net_icmp_echo_write(icmp, ICMP_TYPE_ECHO);
-  virtio_net_ip_header_write(ip_header, 0, ICMP_MESSAGE_ECHO_SIZE, PROTOCOL_ICMP, 0, (uint32) ip);
+  virtio_net_ipv4_header_write(ip_header, 0, ICMP_MESSAGE_ECHO_SIZE, PROTOCOL_ICMP, 0, (uint32) ip);
   virtio_net_send(ip_packet, IP_HEADER_SIZE + ICMP_MESSAGE_ECHO_SIZE, macBroadcast);
 
   return 0;
@@ -2178,6 +2194,6 @@ sys_dhcp_request(void) {
     is_ack = network.dhcp_status.is_ip_acknowledged;
     release(&network.lock);
   }
-  
+
   return 0;
 }
