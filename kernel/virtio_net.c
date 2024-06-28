@@ -32,6 +32,12 @@ static const uint8 UDP_HEADER_OFFSET_LENGTH = 4;
 static const uint8 UDP_HEADER_OFFSET_CSUM = 6;
 static const uint8 UDP_HEADER_SIZE = 8;
 
+#define MIN(a, b) ((a) < (b)) ? (a) : (b)
+
+static const uint8 DHCP_OP_REQUEST = 1;
+static const uint8 DHCP_OP_REPLY = 2;
+static const uint8 DHCP_HTYPE_ETHERNET = 1;
+
 static const uint8 DHCP_MESSAGE_CHADDR_SIZE_MAX = 16;
 static const uint8 DHCP_MESSAGE_BOOT_FILE_NAME_SIZE_MAX = 128;
 static const uint8 DHCP_MESSAGE_SNAME_SIZE_MAX = 64;
@@ -153,6 +159,12 @@ void test_virtio_net_ipv6_header_parse_1();
 void test_virtio_net_icmp_echo_write_1();
 void test_virtio_net_icmp_echo_write_2();
 void test_virtio_net_udp_header_parse_1();
+void test_virtio_net_dhcp_reply_parse_offer_1();
+void test_virtio_net_dhcp_reply_parse_offer_2();
+void test_virtio_net_dhcp_reply_parse_ack_1();
+void test_virtio_net_dhcp_reply_parse_ack_2();
+void test_virtio_net_dhcp_reply_parse_nak_1();
+void test_virtio_net_dhcp_reply_parse_nak_2();
 
 uint32 htonl(uint32 hostlong) {
   return
@@ -475,6 +487,13 @@ virtio_net_init(void) {
   test_virtio_net_icmp_echo_write_1();
   test_virtio_net_icmp_echo_write_2();
   test_virtio_net_udp_header_parse_1();
+
+  test_virtio_net_dhcp_reply_parse_offer_1();
+  test_virtio_net_dhcp_reply_parse_offer_2();
+  test_virtio_net_dhcp_reply_parse_ack_1();
+  test_virtio_net_dhcp_reply_parse_ack_2();
+  test_virtio_net_dhcp_reply_parse_nak_1();
+  test_virtio_net_dhcp_reply_parse_nak_2();
 }
 
 void virtio_net_ethernet_header_write(void *buf, const uint8 *destination_mac, const uint8 *source_mac, uint16 type) {
@@ -712,6 +731,73 @@ void test_virtio_net_ethernet_frame_write_3() {
   printf("test_virtio_net_ethernet_frame_write_3 passed!\n");
 }
 
+#define IPV4_ADDRESS_SIZE 4
+
+struct ipv4_header {
+  uint16 total_length;
+  uint16 id;
+//  uint16 flags : 3;
+//  uint16 fragment_offset : 13;
+  uint8 ttl;
+  uint8 protocol;
+  uint16 header_checksum;
+  uint32 source_address;
+  uint32 destination_address;
+};
+
+int virtio_net_ipv4_header_parse(void* buf, struct ipv4_header* hdr) {
+  //FIXME
+  return -1;
+}
+
+void test_virtio_net_ipv4_header_parse_1() {
+  uint8 header[] = {
+      0x45, 0xFD, 0x22, 0x51, // Version | IHL, Type of Service, Total Length
+      0xA6, 0xD3, 0x4B, 0x1F, // ID, Flags | Fragment offset
+      0x00, PROTOCOL_UDP, 0xE4, 0x48, // TTL, Protocol, Header Checksum
+      0x4C, 0x27, 0xB0, 0x8E, // Source Address
+      0x34, 0x7F, 0xB5, 0x12, // Destination Address
+  };
+  struct ipv4_header hdr;
+
+  int result = virtio_net_ipv4_header_parse(header, &hdr);
+
+  assert_equal(0, result, "test_virtio_net_ipv4_header_parse_1: result must be 0");
+  assert_equal(0x2251, hdr.total_length, "test_virtio_net_ipv4_header_parse_1: wrong total length");
+  assert_equal(0xA6D3, hdr.id, "test_virtio_net_ipv4_header_parse_1: wrong ID");
+  assert_equal(0, hdr.ttl, "test_virtio_net_ipv4_header_parse_1: wrong TTL");
+  assert_equal(PROTOCOL_UDP, hdr.protocol, "test_virtio_net_ipv4_header_parse_1: wrong protocol");
+  assert_equal(0xE448, hdr.header_checksum, "test_virtio_net_ipv4_header_parse_1: wrong header checksum");
+  assert_equal(0x4C27B08E, hdr.source_address, "test_virtio_net_ipv4_header_parse_1: wrong source address");
+  assert_equal(0x347FB512, hdr.destination_address, "test_virtio_net_ipv4_header_parse_1: wrong destination address");
+
+  printf("test_virtio_net_ipv4_header_parse_1 passed!\n");
+}
+
+void test_virtio_net_ipv4_header_parse_2() {
+  uint8 header[] = {
+      0x2C, 0x5F, 0xD5, 0x76, // Version | IHL, Type of Service, Total Length
+      0xF9, 0x7A, 0x79, 0xCD, // ID, Flags | Fragment offset
+      0x90, 0x39, 0xDB, 0xAB, // TTL, Protocol, Header Checksum
+      0xA2, 0x35, 0x3C, 0x3D, // Source Address
+      0x31, 0xB8, 0x1B, 0x2E, // Destination Address
+  };
+  struct ipv4_header hdr;
+
+  int result = virtio_net_ipv4_header_parse(header, &hdr);
+
+  assert_equal(0, result, "test_virtio_net_ipv4_header_parse_1: result must be 0");
+  assert_equal(0xD576, hdr.total_length, "test_virtio_net_ipv4_header_parse_1: wrong total length");
+  assert_equal(0xF97A, hdr.id, "test_virtio_net_ipv4_header_parse_1: wrong ID");
+  assert_equal(0x90, hdr.ttl, "test_virtio_net_ipv4_header_parse_1: wrong TTL");
+  assert_equal(0x39, hdr.protocol, "test_virtio_net_ipv4_header_parse_1: wrong protocol");
+  assert_equal(0xDBAB, hdr.header_checksum, "test_virtio_net_ipv4_header_parse_1: wrong header checksum");
+  assert_equal(0xA2353C3D, hdr.source_address, "test_virtio_net_ipv4_header_parse_1: wrong source address");
+  assert_equal(0x31B81B2E, hdr.destination_address, "test_virtio_net_ipv4_header_parse_1: wrong destination address");
+
+  printf("test_virtio_net_ipv4_header_parse_2 passed!\n");
+}
+
 #define IPV6_ADDRESS_SIZE 16
 
 struct ipv6_header {
@@ -738,7 +824,6 @@ int virtio_net_ipv6_header_parse(void *buf, struct ipv6_header *header) {
   memmove(header->source_address, p + IPV6_HEADER_OFFSET_SRC_ADDRESS, IPV6_ADDRESS_SIZE);
   memmove(header->destination_address, p + IPV6_HEADER_OFFSET_DEST_ADDRESS, IPV6_ADDRESS_SIZE);
 
-  //FIXME
   return 0;
 }
 
@@ -925,35 +1010,425 @@ void test_virtio_net_udp_header_parse_1() {
   printf("test_virtio_net_udp_header_parse_1 passed!\n");
 }
 
-void virtio_net_parse_packet(void* buf) {
+struct dhcp_reply {
+  enum {
+    DHCPOFFER,
+    DHCPACK,
+    DHCPNAK
+  } type;
+  uint32 ip_address;
+};
+
+int virtio_net_dhcp_reply_parse(void *buf, struct dhcp_reply *msg) {
+  //FIXME
+  return -1;
+}
+
+void test_virtio_net_dhcp_reply_parse_offer_1() {
+  uint8 dhcp_offer[] = {
+      DHCP_OP_REPLY, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0x00,
+      0x00, 0x00, 0x00, 0x01, // xid
+      0x00, 0x02, // secs
+      0xAB, 0xCD, // flags
+      0x1A, 0x2B, 0x3C, 0x4D, // ciaddr
+      0x11, 0x12, 0x13, 0x14, // yiaddr
+      0x98, 0x76, 0x54, 0x32, // siaddr
+      0x00, 0x33, 0x77, 0x22, // giaddr
+
+      // chaddr - 16 bytes
+      0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // sname - 64 bytes
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // boot file name - 128 bytes
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // DHCP options magic cookie, big-endian
+      0x63, 0x82, 0x53, 0x63,
+
+      DHCP_OPTION_MESSAGE_TYPE, DHCP_OPTION_LENGTH_MESSAGE_TYPE, DHCP_MESSAGE_TYPE_OFFER,
+
+      DHCP_OPTION_END
+  };
+  struct dhcp_reply msg;
+
+  int result = virtio_net_dhcp_reply_parse(dhcp_offer, &msg);
+
+  if (0 != result) {
+    panic("test_virtio_net_dhcp_reply_parse_offer_1: result must be 0");
+  }
+  if (DHCPOFFER != msg.type) {
+    panic("test_virtio_net_dhcp_reply_parse_offer_1: msg.type must be DHCPOFFER");
+  }
+  if (0x11121314 != msg.ip_address) { // from yiaddr
+    panic("test_virtio_net_dhcp_reply_parse_offer_1: failed to parse yiaddr");
+  }
+
+  printf("test_virtio_net_dhcp_reply_parse_offer_1 passed!\n");
+}
+
+void test_virtio_net_dhcp_reply_parse_offer_2() {
+  uint8 dhcp_offer[] = {
+      DHCP_OP_REPLY, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0x00,
+      0x11, 0xA7, 0x1E, 0x27, // xid
+      0x8C, 0xA7, // secs
+      0xC2, 0xBA, // flags
+      0xE1, 0x4E, 0x3E, 0x02, // ciaddr
+      0xFE, 0x11, 0x54, 0x09, // yiaddr
+      0xB0, 0xED, 0xE0, 0x9D, // siaddr
+      0xE0, 0x4A, 0x76, 0x40, // giaddr
+
+      // chaddr - 16 bytes
+      0x89, 0x54, 0x0F, 0x13, 0x87, 0x62, 0x4A, 0x62,
+      0xD9, 0x3E, 0x12, 0x64, 0xC1, 0xB9, 0x7A, 0x27,
+
+      // sname - 64 bytes
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // boot file name - 128 bytes
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // DHCP options magic cookie, big-endian
+      0x63, 0x82, 0x53, 0x63,
+
+      DHCP_OPTION_MESSAGE_TYPE, DHCP_OPTION_LENGTH_MESSAGE_TYPE, DHCP_MESSAGE_TYPE_OFFER,
+
+      DHCP_OPTION_END
+  };
+  struct dhcp_reply msg;
+
+  int result = virtio_net_dhcp_reply_parse(dhcp_offer, &msg);
+
+  if (0 != result) {
+    panic("test_virtio_net_dhcp_reply_parse_offer_2: result must be 0");
+  }
+  if (DHCPOFFER != msg.type) {
+    panic("test_virtio_net_dhcp_reply_parse_offer_2: msg.type must be DHCPOFFER");
+  }
+  if (0xFE115409 != msg.ip_address) { // from yiaddr
+    panic("test_virtio_net_dhcp_reply_parse_offer_2: failed to parse yiaddr");
+  }
+
+  printf("test_virtio_net_dhcp_reply_parse_offer_2 passed!\n");
+}
+
+void test_virtio_net_dhcp_reply_parse_ack_1() {
+  uint8 dhcp_ack[] = {
+      DHCP_OP_REPLY, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0x00,
+      0xBC, 0x45, 0x57, 0x92, // xid
+      0xD8, 0xF2, // secs
+      0xCE, 0x16, // flags
+      0xC5, 0xCD, 0x00, 0x7B, // ciaddr
+      0x94, 0x90, 0x15, 0xB0, // yiaddr
+      0x7C, 0x22, 0xB2, 0x6E, // siaddr
+      0x73, 0x14, 0xCD, 0xCC, // giaddr
+
+      // chaddr - 16 bytes
+      0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // sname - 64 bytes
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // boot file name - 128 bytes
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // DHCP options magic cookie, big-endian
+      0x63, 0x82, 0x53, 0x63,
+
+      DHCP_OPTION_MESSAGE_TYPE, DHCP_OPTION_LENGTH_MESSAGE_TYPE, DHCP_MESSAGE_TYPE_ACK,
+
+      DHCP_OPTION_END
+  };
+  struct dhcp_reply msg;
+
+  int result = virtio_net_dhcp_reply_parse(dhcp_ack, &msg);
+
+  if (0 != result) {
+    panic("test_virtio_net_dhcp_reply_parse_ack_1: result must be 0");
+  }
+  if (DHCPACK != msg.type) {
+    panic("test_virtio_net_dhcp_reply_parse_ack_1: msg.type must be DHCPACK");
+  }
+  if (0x949015B0 != msg.ip_address) { // from yiaddr
+    panic("test_virtio_net_dhcp_reply_parse_ack_1: failed to parse yiaddr");
+  }
+
+  printf("test_virtio_net_dhcp_reply_parse_ack_1 passed!\n");
+}
+
+void test_virtio_net_dhcp_reply_parse_ack_2() {
+  uint8 dhcp_ack[] = {
+      DHCP_OP_REPLY, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0x00,
+      0x7E, 0x4F, 0xE2, 0x73, // xid
+      0x72, 0xEE, // secs
+      0xE9, 0x0E, // flags
+      0x93, 0xD2, 0x91, 0x75, // ciaddr
+      0xE0, 0x99, 0x58, 0xEF, // yiaddr
+      0xF2, 0x0A, 0xC1, 0x53, // siaddr
+      0x9A, 0x5E, 0x37, 0x38, // giaddr
+
+      // chaddr - 16 bytes
+      0x89, 0x54, 0x0F, 0x13, 0x87, 0x62, 0x4A, 0x62,
+      0xD9, 0x3E, 0x12, 0x64, 0xC1, 0xB9, 0x7A, 0x27,
+
+      // sname - 64 bytes
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // boot file name - 128 bytes
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // DHCP options magic cookie, big-endian
+      0x63, 0x82, 0x53, 0x63,
+
+      DHCP_OPTION_MESSAGE_TYPE, DHCP_OPTION_LENGTH_MESSAGE_TYPE, DHCP_MESSAGE_TYPE_ACK,
+
+      DHCP_OPTION_END
+  };
+  struct dhcp_reply msg;
+
+  int result = virtio_net_dhcp_reply_parse(dhcp_ack, &msg);
+
+  if (0 != result) {
+    panic("test_virtio_net_dhcp_reply_parse_ack_2: result must be 0");
+  }
+  if (DHCPACK != msg.type) {
+    panic("test_virtio_net_dhcp_reply_parse_ack_2: msg.type must be DHCPACK");
+  }
+  if (0xE09958EF != msg.ip_address) {
+    panic("test_virtio_net_dhcp_reply_parse_ack_2: failed to parse yiaddr");
+  }
+
+  printf("test_virtio_net_dhcp_reply_parse_ack_2 passed!\n");
+}
+
+void test_virtio_net_dhcp_reply_parse_nak_1() {
+  uint8 dhcp_nak[] = {
+      DHCP_OP_REPLY, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0x00,
+      0x13, 0x54, 0xDC, 0x7B, // xid
+      0x46, 0x27, // secs
+      0x19, 0x7A, // flags
+      0x01, 0xD0, 0x7D, 0xBA, // ciaddr
+      0x43, 0x54, 0x1E, 0xBE, // yiaddr
+      0x40, 0xC4, 0xAF, 0x4A, // siaddr
+      0x77, 0x61, 0xFA, 0xBF, // giaddr
+
+      // chaddr - 16 bytes
+      0x89, 0x54, 0x0F, 0x13, 0x87, 0x62, 0x4A, 0x62,
+      0xD9, 0x3E, 0x12, 0x64, 0xC1, 0xB9, 0x7A, 0x27,
+
+      // sname - 64 bytes
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // boot file name - 128 bytes
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // DHCP options magic cookie, big-endian
+      0x63, 0x82, 0x53, 0x63,
+
+      DHCP_OPTION_MESSAGE_TYPE, DHCP_OPTION_LENGTH_MESSAGE_TYPE, DHCP_MESSAGE_TYPE_NAK,
+
+      DHCP_OPTION_END
+  };
+  struct dhcp_reply msg;
+
+  int result = virtio_net_dhcp_reply_parse(dhcp_nak, &msg);
+
+  if (0 != result) {
+    panic("test_virtio_net_dhcp_reply_parse_nak_1: result must be 0");
+  }
+  if (DHCPNAK != msg.type) {
+    panic("test_virtio_net_dhcp_reply_parse_nak_1: msg.type must be DHCPNAK");
+  }
+  if (0 != msg.ip_address) {
+    panic("test_virtio_net_dhcp_reply_parse_nak_1: msg.ip_address must be 0");
+  }
+
+  printf("test_virtio_net_dhcp_reply_parse_nak_1 passed!\n");
+}
+
+void test_virtio_net_dhcp_reply_parse_nak_2() {
+  uint8 dhcp_nak[] = {
+      DHCP_OP_REPLY, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0x00,
+      0xC6, 0x4C, 0x66, 0x44, // xid
+      0xDD, 0x92, // secs
+      0x5D, 0x55, // flags
+      0xC2, 0xBF, 0x6B, 0x96, // ciaddr
+      0xF9, 0x86, 0xF0, 0xCD, // yiaddr
+      0xB6, 0x21, 0x4A, 0x67, // siaddr
+      0x83, 0x00, 0xB1, 0x98, // giaddr
+
+      // chaddr - 16 bytes
+      0x89, 0x54, 0x0F, 0x13, 0x87, 0x62, 0x4A, 0x62,
+      0xD9, 0x3E, 0x12, 0x64, 0xC1, 0xB9, 0x7A, 0x27,
+
+      // sname - 64 bytes
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // boot file name - 128 bytes
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+      // DHCP options magic cookie, big-endian
+      0x63, 0x82, 0x53, 0x63,
+
+      DHCP_OPTION_MESSAGE_TYPE, DHCP_OPTION_LENGTH_MESSAGE_TYPE, DHCP_MESSAGE_TYPE_NAK,
+
+      DHCP_OPTION_END
+  };
+  struct dhcp_reply msg;
+
+  int result = virtio_net_dhcp_reply_parse(dhcp_nak, &msg);
+
+  if (0 != result) {
+    panic("test_virtio_net_dhcp_reply_parse_nak_2: result must be 0");
+  }
+  if (DHCPNAK != msg.type) {
+    panic("test_virtio_net_dhcp_reply_parse_nak_2: msg.type must be DHCPNAK");
+  }
+  if (0 != msg.ip_address) {
+    panic("test_virtio_net_dhcp_reply_parse_nak_2: ip address must be 0");
+  }
+
+  printf("test_virtio_net_dhcp_reply_parse_nak_2 passed!\n");
+}
+
+void virtio_net_parse_udp_packet(void *buf) {
+  uint8 *p_udp_header = (uint8 *) buf;
+  if (0 != virtio_net_udp_header_parse(p_udp_header, &udp_hdr)) {
+        panic("Failed to parse UDP header");
+  }
+//      udp_header_print(&udp_hdr);
+  if (DHCP_PORT_CLIENT == udp_hdr.destination_port) {
+    uint8 *p_dhcp_message = p_udp_header + UDP_HEADER_SIZE;
+    struct dhcp_reply dhcp_msg;
+    if (0 != virtio_net_dhcp_reply_parse(p_dhcp_message, &dhcp_msg)) {
+      panic("Failed to parse DHCP message");
+    }
+    switch (dhcp_msg.type) {
+      case DHCPOFFER:
+        network.dhcp_status.offered_ip_address = dhcp_msg.ip_address;
+        network.dhcp_status.is_ip_acknowledged = 0;
+        break;
+      case DHCPACK:
+//            network.dhcp_status.offered_ip_address = dhcp_msg.ip_address;
+        network.dhcp_status.is_ip_acknowledged = 1;
+        break;
+      case DHCPNAK:
+        network.dhcp_status.offered_ip_address = IPV4_ADDRESS_NULL;
+        network.dhcp_status.is_ip_acknowledged = 0;
+        break;
+    }
+  }
+}
+
+void virtio_net_parse_ipv6_packet(void* buf) {
+  uint8 *p_ipv6_header = (uint8*) buf;
+  struct ipv6_header ipv6_hdr;
+  if (0 != virtio_net_ipv6_header_parse(p_ipv6_header, &ipv6_hdr)) {
+      panic("Failed to parse IPv6 header");
+  }
+//    ipv6_header_print(&ipv6_hdr);
+
+  if (PROTOCOL_UDP == ipv6_hdr.next_header) {
+    struct udp_header udp_hdr;
+    uint8 *p_udp_header = p_ipv6_header + IPV6_HEADER_SIZE;
+    virtio_net_parse_udp_packet(p_udp_header);
+  }
+}
+
+void virtio_net_parse_ipv4_packet(void* buf) {
+  uint8 *p_ipv4_header = (uint8*) buf;
+  struct ipv4_header ipv4_hdr;
+  if (0 != virtio_net_ipv4_header_parse(p_ipv4_header, &ipv4_hdr)) {
+    panic("Failed to parse IPv4 header");
+  }
+
+  if (PROTOCOL_UDP == ipv4_hdr.type) {
+    struct udp_header udp_hdr;
+    uint8 *p_udp_header = p_ipv4_header + IPV4_HEADER_SIZE;
+    virtio_net_parse_udp_packet(p_udp_header);
+  }
+}
+
+void virtio_net_parse_ethernet_packet(void *buf) {
   struct ethernet_header eth_hdr;
   uint8 *p_ethernet_header = (uint8 *) buf + sizeof(struct virtio_net_hdr);
   virtio_net_ethernet_header_parse(p_ethernet_header, &eth_hdr);
-  ethernet_header_print(&eth_hdr);
-
+//  ethernet_header_print(&eth_hdr);
+  uint8 *p_ip_header = p_ethernet_header + ETHERNET_HEADER_SIZE;
   if (ETHERNET_TYPE_IPV6 == eth_hdr.type) {
-    struct ipv6_header ipv6_hdr;
-    uint8 *p_ipv6_header = p_ethernet_header + ETHERNET_HEADER_SIZE;
-    if (0 != virtio_net_ipv6_header_parse(p_ipv6_header, &ipv6_hdr)) {
-      printf("Failed to parse IPv6 header\n");
-    }
-    ipv6_header_print(&ipv6_hdr);
-
-    if (PROTOCOL_UDP == ipv6_hdr.next_header) {
-      struct udp_header udp_hdr;
-      uint8 *p_udp_header = p_ipv6_header + IPV6_HEADER_SIZE;
-      if (0 != virtio_net_udp_header_parse(p_udp_header, &udp_hdr)) {
-        printf("Failed to parse UDP header\n");
-      }
-      udp_header_print(&udp_hdr);
-    }
+    virtio_net_parse_ipv6_packet(p_ip_header);
+  } else if (ETHERNET_TYPE_IPV4 == eth_hdr.type) {
+    virtio_net_parse_ipv4_packet(p_ip_header);
   }
 }
 
 void
 virtio_net_intr(void) {
   acquire(&network.lock);
-  printf("virtio_net_intr: begin\n");
+//  printf("virtio_net_intr: begin\n");
 
   // handle transmitted packets
   while (network.transmit_used_idx < network.transmit.used->idx) {
@@ -965,10 +1440,9 @@ virtio_net_intr(void) {
   wakeup(&network.is_transmit_done[0]);
 
   //FIXME handle received packets
-  printf("[R] network.receive.used->idx = %d\n", network.receive.used->idx);
-
+//  printf("[R] network.receive.used->idx = %d\n", network.receive.used->idx);
   while (network.receive_used_idx < network.receive.used->idx) {
-    printf("---------------------- RECEIVED PACKET -----------------------------------------\n");
+//    printf("---------------------- RECEIVED PACKET -----------------------------------------\n");
     const uint32 id = network.receive.used->ring[network.receive_used_idx].id;
     void *buf = (void *) network.receive.desc[id].addr;
     virtio_net_parse_packet(buf);
@@ -986,33 +1460,13 @@ virtio_net_intr(void) {
   release(&network.lock);
 }
 
-#define MIN(a, b) ((a) < (b)) ? (a) : (b)
-
-//static const uint8 op_size = 1;
-//static const uint8 htype_size = 1;
-//static const uint8 hlen_size = 1;
-//static const uint8 hops_size = 1;
-//static const uint8 xid_size = 4;
-//static const uint8 secs_size = 2;
-//static const uint8 flags_size = 2;
-//static const uint8 ciaddr_size = 4;
-//static const uint8 yiaddr_size = 4;
-//static const uint8 siaddr_size = 4;
-//static const uint8 giaddr_size = 4;
-//static const uint8 chaddr_size = 16;
-//static const uint8 sname_size = 64;
-//static const uint8 file_size = 128;
-//static const uint8 DHCP_MESSAGE_SIZE = op_size + htype_size + hlen_size + hops_size + xid_size + secs_size + flags_size +
-//    ciaddr_size + yiaddr_size + siaddr_size + giaddr_size + chaddr_size + sname_size + file_size;
-static const uint8 DHCP_OP_REQUEST = 1;
-static const uint8 DHCP_OP_REPLY = 2;
-static const uint8 DHCP_HTYPE_ETHERNET = 1;
 /** Fills DHCP message fields (except options) */
 void virtio_net_dhcp_message_write(void *buf, uint8 op, uint8 htype, uint8 hlen, uint8 hops, uint32 xid, uint16 secs,
                                    uint16 flags, uint32 ciaddr, uint32 yiaddr, uint32 siaddr, uint32 giaddr,
                                    const uint8 *chaddr, uint8 chaddr_size, const char *sname,
                                    const char *boot_file_name) {
   //FIXME Add length parameters for chaddr, sname, boot_file_name
+  //FIXME Remove boot_file_name parameter and make DHCP BOOT_FILE_NAME field always 0
   memset(buf, 0, DHCP_MESSAGE_SIZE);
 
   uint8 *msg = (uint8 *) buf;
@@ -1080,7 +1534,7 @@ void test_virtio_net_dhcp_message_write_1() {
   void *buf = kalloc();
 
   virtio_net_dhcp_message_write(buf, DHCP_OP_REQUEST, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0, 1, 2, 0xABCD,
-                                0x1A2B3C4D, 0x11121314, 0x98765432, 0x00337722, mac, 6, 0, 0);
+                                0x1A2B3C4D, 0x11121314, 0x98765432, 0x00337722, mac, MAC_ADDRESS_LENGTH, 0, 0);
 
   assert_memory_equal(expected, buf, DHCP_MESSAGE_SIZE, "test_virtio_net_dhcp_message_write_1");
 
@@ -1346,8 +1800,33 @@ void test_virtio_net_dhcp_offer_write_1() {
 }
 
 uint16 virtio_net_dhcp_request_write(void *buf, uint8 *chaddr, uint32 requested_ip, uint32 transaction_id) {
-  //FIXME
-  return 0;
+  virtio_net_dhcp_message_write(buf, DHCP_OP_REQUEST, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0, 0x1, 0, 0,
+                                IPV4_ADDRESS_NULL, IPV4_ADDRESS_NULL, IPV4_ADDRESS_NULL, IPV4_ADDRESS_NULL, chaddr,
+                                MAC_ADDRESS_LENGTH, 0, 0);
+
+  uint8 *ptr = ((uint8 *) buf) + DHCP_MESSAGE_SIZE;
+
+  *(uint32 *) ptr = htonl(DHCP_OPTIONS_MAGIC_COOKIE);
+  ptr += sizeof(DHCP_OPTIONS_MAGIC_COOKIE);
+
+  *ptr++ = DHCP_OPTION_MESSAGE_TYPE;
+  *ptr++ = DHCP_OPTION_LENGTH_MESSAGE_TYPE;
+  *ptr++ = DHCP_MESSAGE_TYPE_REQUEST;
+
+  *ptr++ = DHCP_OPTION_CLIENT_ID;
+  *ptr++ = (MAC_ADDRESS_LENGTH + 1);
+  *ptr++ = DHCP_HTYPE_ETHERNET;
+  memmove(ptr, chaddr, MAC_ADDRESS_LENGTH);
+  ptr += MAC_ADDRESS_LENGTH;
+
+  *ptr++ = DHCP_OPTION_REQUESTED_IP;
+  *ptr++ = sizeof(requested_ip);
+  *(uint32 *) ptr = htonl(requested_ip);
+  ptr += sizeof(requested_ip);
+
+  *ptr++ = DHCP_OPTION_END;
+
+  return (ptr - (uint8 *) buf);
 }
 
 void test_virtio_net_dhcp_request_write_1() {
@@ -1412,7 +1891,7 @@ void test_virtio_net_dhcp_request_write_1() {
   void *buf = kalloc();
   memset(buf, 0, PGSIZE);
 
-  uint16 length = virtio_net_dhcp_request_write(buf, chaddr, 0x3A00A8C0, 1);
+  uint16 length = virtio_net_dhcp_request_write(buf, chaddr, 0xC0A8003A, 1);
 
   uint16 expected_length = DHCP_MESSAGE_SIZE +
       4 /* cookie */ +
@@ -1668,24 +2147,37 @@ uint64 sleep_for(int n) {
 
 uint64
 sys_dhcp_request(void) {
+  int is_ack = 0;
   acquire(&network.lock);
-
   network.dhcp_status.is_ip_acknowledged = 0;
-  while (0 == network.dhcp_status.is_ip_acknowledged) {
+  release(&network.lock);
+  const int timeout = 100;
+
+  uint32 offered_ip_address = 0;
+  while (0 == is_ack) {
+    acquire(&network.lock);
     network.dhcp_status.offered_ip_address = 0;
+    release(&network.lock);
+
     virtio_net_send_dhcp_discover();
-    sleep_for(1000);
-    if (0 < network.dhcp_status.offered_ip_address) {
-      virtio_net_send_dhcp_request(network.dhcp_status.offered_ip_address);
-      sleep_for(1000);
+    sleep_for(timeout);
+
+    acquire(&network.lock);
+    offered_ip_address = network.dhcp_status.offered_ip_address;
+    release(&network.lock);
+    if (0 < offered_ip_address) {
+      virtio_net_send_dhcp_request(offered_ip_address);
+      sleep_for(timeout);
     }
 
     if (killed(myproc())) {
-      release(&network.lock);
       return -1;
     }
-  }
 
-  release(&network.lock);
+    acquire(&network.lock);
+    is_ack = network.dhcp_status.is_ip_acknowledged;
+    release(&network.lock);
+  }
+  
   return 0;
 }
