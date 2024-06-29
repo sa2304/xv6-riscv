@@ -1028,6 +1028,7 @@ void test_virtio_net_udp_header_parse_1() {
 
 struct dhcp_reply {
   enum {
+    DHCPINVALID,
     DHCPOFFER,
     DHCPACK,
     DHCPNAK
@@ -1036,8 +1037,37 @@ struct dhcp_reply {
 };
 
 int virtio_net_dhcp_reply_parse(void *buf, struct dhcp_reply *msg) {
-  //FIXME
-  return -1;
+  uint8* dhcp = (uint8*) buf;
+  memset(msg, 0, sizeof(struct dhcp_reply));
+  const uint8 dhcp_op = dhcp[DHCP_MESSAGE_OFFSET_OP];
+  if (DHCP_OP_REPLY != dhcp_op) return -1;
+
+  msg->ip_address = ntohl(*(uint32*) &dhcp[DHCP_MESSAGE_OFFSET_YIADDR]);
+  const uint32 cookie = ntohl(*(uint32*) &dhcp[DHCP_MESSAGE_SIZE]);
+  if (DHCP_OPTIONS_MAGIC_COOKIE != cookie) return -1;
+
+  msg->type = DHCPINVALID;
+  uint8* next_option = dhcp + DHCP_MESSAGE_SIZE + sizeof(cookie);
+  while (DHCP_OPTION_END != *next_option) {
+    const uint8 opcode = *next_option;
+    if (DHCP_OPTION_MESSAGE_TYPE == opcode) {
+      switch (next_option[2]) {
+        case DHCP_MESSAGE_TYPE_OFFER:
+          msg->type = DHCPOFFER;
+          break;
+        case DHCP_MESSAGE_TYPE_ACK:
+          msg->type = DHCPACK;
+          break;
+        case DHCP_MESSAGE_TYPE_NAK:
+          msg->type = DHCPNAK;
+          msg->ip_address = IPV4_ADDRESS_NULL;
+          break;
+      }
+      break;
+    }
+  }
+
+  return 0;
 }
 
 void test_virtio_net_dhcp_reply_parse_offer_1() {
@@ -1385,16 +1415,22 @@ void virtio_net_parse_udp_packet(void *buf) {
     }
     switch (dhcp_msg.type) {
       case DHCPOFFER:
+        printf("DHCPOFFER received\n");
         network.dhcp_status.offered_ip_address = dhcp_msg.ip_address;
         network.dhcp_status.is_ip_acknowledged = 0;
         break;
       case DHCPACK:
+        printf("DHCPACK received\n");
 //            network.dhcp_status.offered_ip_address = dhcp_msg.ip_address;
         network.dhcp_status.is_ip_acknowledged = 1;
         break;
       case DHCPNAK:
+        printf("DHCPNAK received\n");
         network.dhcp_status.offered_ip_address = IPV4_ADDRESS_NULL;
         network.dhcp_status.is_ip_acknowledged = 0;
+        break;
+      case DHCPINVALID:
+        panic("Failed to parse DHCP message");
         break;
     }
   }
