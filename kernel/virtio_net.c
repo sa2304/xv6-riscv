@@ -12,6 +12,7 @@ static const uint8 ETHERNET_HEADER_OFFSET_LEN_TYPE = 12;
 static const uint8 ETHERNET_HEADER_SIZE = 14;
 static const uint16 ETHERNET_TYPE_IPV4 = 0x0800;
 static const uint16 ETHERNET_TYPE_IPV6 = 0x86DD;
+static const uint16 ETHERNET_TYPE_ARP = 0x0806;
 
 static const uint8 IP_HEADER_OFFSET_VERSION_IHL = 0;
 static const uint8 IP_HEADER_OFFSET_TYPE_OF_SERVICE = 1;
@@ -983,11 +984,16 @@ void printIpv6Address(uint8 *addr) {
   }
 }
 
-void printMacAddress(uint8 *mac) {
-  for (int i = 0; i < MAC_ADDRESS_LENGTH; ++i) {
+void printHexBytes(const void *buf, int size) {
+  const uint8 *p = (const uint8 *) buf;
+  for (int i = 0; i < size; ++i) {
     if (0 < i) printf(":");
-    printf("%x", mac[i]);
+    printf("%x", p[i]);
   }
+}
+
+void printMacAddress(uint8 *mac) {
+  printHexBytes(mac, MAC_ADDRESS_LENGTH);
 }
 
 void ethernet_header_print(struct ethernet_header *header) {
@@ -1059,7 +1065,7 @@ void test_virtio_net_udp_header_parse_1() {
 #define UINT8_MAX 255
 
 struct arp_message {
-  enum { ARP_OP_REQUEST, ARP_OP_REPLY } opcode;
+  enum { ARP_OP_REQUEST = 1, ARP_OP_REPLY = 2 } opcode;
   uint16 hardware_address_space;
   uint16 protocol_address_space;
   uint8 hardware_address_size;
@@ -1086,11 +1092,11 @@ int virtio_net_arp_message_parse(void *buf, struct arp_message *arp) {
   arp->protocol_address_size = p[ARP_MESSAGE_OFFSET_PROTOCOL_ADDR_LEN];
   arp->opcode = ntohs(*(uint16 *) &p[ARP_MESSAGE_OFFSET_OPCODE]);
   memmove(arp->sender_hardware_address, &p[ARP_MESSAGE_OFFSET_SENDER_ADDR], arp->hardware_address_size);
-  const uint8* p_sender_protocol_addr = &p[ARP_MESSAGE_OFFSET_SENDER_ADDR] + arp->hardware_address_size;
+  const uint8 *p_sender_protocol_addr = &p[ARP_MESSAGE_OFFSET_SENDER_ADDR] + arp->hardware_address_size;
   memmove(arp->sender_protocol_address, p_sender_protocol_addr, arp->protocol_address_size);
-  const uint8* p_target_hardware_address =p_sender_protocol_addr + arp->protocol_address_size;
+  const uint8 *p_target_hardware_address = p_sender_protocol_addr + arp->protocol_address_size;
   memmove(arp->target_hardware_address, p_target_hardware_address, arp->hardware_address_size);
-  const uint8* p_target_protocol_address = p_target_hardware_address + arp->hardware_address_size;
+  const uint8 *p_target_protocol_address = p_target_hardware_address + arp->hardware_address_size;
   memmove(arp->target_protocol_address, p_target_protocol_address, arp->protocol_address_size);
 
   return 0;
@@ -1184,6 +1190,21 @@ void test_virtio_net_arp_message_parse_2() {
                       "test_virtio_net_arp_message_parse_2: wrong target_protocol_address");
 
   printf("test_virtio_net_arp_message_parse_2 passed!\n");
+}
+
+void arp_message_print(const struct arp_message *arp) {
+  printf("[ARP %s] ", (ARP_OP_REQUEST == arp->opcode) ? "REQUEST" : "REPLY");
+  printf("HARDWARE<TYPE=0x%x, SIZE=%d> ", arp->hardware_address_space, arp->hardware_address_size);
+  printf("PROTOCOL<TYPE=0x%x, SIZE=%d> ", arp->protocol_address_space, arp->protocol_address_size);
+  printf("sender<hw=(");
+  printHexBytes(arp->sender_hardware_address, arp->hardware_address_size);
+  printf("), p=(");
+  printHexBytes(arp->sender_protocol_address, arp->protocol_address_size);
+  printf(")> target=<hw=(");
+  printHexBytes(arp->target_hardware_address, arp->hardware_address_size);
+  printf(") p=(");
+  printHexBytes(arp->target_protocol_address, arp->protocol_address_size);
+  printf(")>\n");
 }
 
 struct dhcp_reply {
@@ -1623,16 +1644,24 @@ void virtio_net_parse_ipv4_packet(void *buf) {
   }
 }
 
+void virtio_net_parse_arp_packet(void* buf) {
+  struct arp_message arp;
+  if (0 == virtio_net_arp_message_parse(buf, &arp)) arp_message_print(&arp);
+  else printf("Failed to parse ARP message\n");
+}
+
 void virtio_net_parse_ethernet_packet(void *buf) {
   struct ethernet_header eth_hdr;
   uint8 *p_ethernet_header = (uint8 *) buf;
   virtio_net_ethernet_header_parse(p_ethernet_header, &eth_hdr);
   ethernet_header_print(&eth_hdr);
-  uint8 *p_ip_header = p_ethernet_header + ETHERNET_HEADER_SIZE;
+  uint8 *p_data = p_ethernet_header + ETHERNET_HEADER_SIZE;
   if (ETHERNET_TYPE_IPV6 == eth_hdr.type) {
-    virtio_net_parse_ipv6_packet(p_ip_header);
+    virtio_net_parse_ipv6_packet(p_data);
   } else if (ETHERNET_TYPE_IPV4 == eth_hdr.type) {
-    virtio_net_parse_ipv4_packet(p_ip_header);
+    virtio_net_parse_ipv4_packet(p_data);
+  } else if (ETHERNET_TYPE_ARP == eth_hdr.type) {
+    virtio_net_parse_arp_packet(p_data);
   }
 }
 
