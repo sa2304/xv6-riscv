@@ -58,16 +58,33 @@ static const uint8 DHCP_MESSAGE_OFFSET_SNAME = 44;
 static const uint8 DHCP_MESSAGE_OFFSET_BOOT_FILE_NAME = 108;
 //static const uint8 DHCP_MESSAGE_OFFSET_OPTIONS = 236;
 static const uint8 DHCP_MESSAGE_SIZE = 236; // does not include required DHCP options
+static const uint16 DHCP_MESSAGE_SIZE_MAX = 0x5C0;
+static const uint16 DHCP_FLAG_BROADCAST = 0x8000;
+
+
 static const uint32 DHCP_OPTIONS_MAGIC_COOKIE = 0x63825363; // in little-endian
 //static const uint8 DHCP_OPTION_PAD = 0;
-//static const uint8 DHCP_OPTION_SUBNET_MASK = 0x1;
-//static const uint8 DHCP_OPTION_ROUTER = 0x3;
+static const uint8 DHCP_OPTION_SUBNET_MASK = 1;
+static const uint8 DHCP_OPTION_ROUTER = 3;
+static const uint8 DHCP_OPTION_DOMAIN_NAME_SERVER = 6;
+static const uint8 DHCP_OPTION_DOMAIN_NAME = 15;
+static const uint8 DHCP_OPTION_INTERFACE_MTU = 26;
+static const uint8 DHCP_OPTION_BROADCAST_ADDRESS = 28;
+static const uint8 DHCP_OPTION_STATIC_ROUTE = 33;
+static const uint8 DHCP_OPTION_IP_ADDRESS_LEASE_TIME = 51;
+static const uint8 DHCP_OPTION_DHCP_SERVER_ID = 54;
+static const uint8 DHCP_OPTION_MESSAGE_SIZE_MAX = 57;
+static const uint8 DHCP_OPTION_RENEWAL_TIME_VALUE = 58;
+static const uint8 DHCP_OPTION_REBINDING_TIME_VALUE = 59;
+static const uint8 DHCP_OPTION_RAPID_COMMIT = 80;
+static const uint8 DHCP_OPTION_AUTO_CONFIG = 116;
+static const uint8 DHCP_OPTION_DOMAIN_SEARCH = 119;
 static const uint8 DHCP_OPTION_MESSAGE_TYPE = 0x35;
 static const uint8 DHCP_OPTION_CLIENT_ID = 0x3D;
 static const uint8 DHCP_OPTION_HOSTNAME = 0x0C;
-static const uint8 DHCP_OPTION_CLIENT_FQDN = 0x51;
+//static const uint8 DHCP_OPTION_CLIENT_FQDN = 0x51;
 static const uint8 DHCP_OPTION_REQUESTED_IP = 0x32;
-//static const uint8 DHCP_OPTION_PARAMETER_REQUEST_LIST = 0x37;
+static const uint8 DHCP_OPTION_PARAMETER_REQUEST_LIST = 0x37;
 //static const uint8 DHCP_OPTION_VENDOR_CLASS_ID = 0x3C;
 static const uint8 DHCP_OPTION_END = 0xFF;
 static const uint16 DHCP_PORT_SERVER = 67;
@@ -263,6 +280,15 @@ void test_ntohs_2() {
   }
 
   printf("test_ntohs_2 passed!\n");
+}
+
+/* FIXME Generate random */
+uint32 get_random_uint32() {
+  acquire(&tickslock);
+  uint32 n = ticks;
+  release(&tickslock);
+
+  return 0xFFFFFFFF - n;
 }
 
 #define R1(r) ((volatile uint32 *)(VIRTIO1 + (r)))
@@ -749,19 +775,19 @@ struct ipv4_header {
   uint32 destination_address;
 };
 
-int virtio_net_ipv4_header_parse(void* buf, struct ipv4_header* hdr) {
-  uint8* header = (uint8*) buf;
+int virtio_net_ipv4_header_parse(void *buf, struct ipv4_header *hdr) {
+  uint8 *header = (uint8 *) buf;
   const uint8 version = (header[IP_HEADER_OFFSET_VERSION_IHL] >> 4) & 0x0F;
   if (IPV4_VERSION != version) return -1;
 
 //  memset(hdr, 0, sizeof(struct ipv4_header));
-  hdr->total_length = ntohs(*(uint16*) &header[IP_HEADER_OFFSET_TOTAL_LENGTH]);
-  hdr->id = ntohs(*(uint16*) &header[IP_HEADER_OFFSET_IDENTIFICATION]);
+  hdr->total_length = ntohs(*(uint16 *) &header[IP_HEADER_OFFSET_TOTAL_LENGTH]);
+  hdr->id = ntohs(*(uint16 *) &header[IP_HEADER_OFFSET_IDENTIFICATION]);
   hdr->ttl = header[IP_HEADER_OFFSET_TTL];
   hdr->protocol = header[IP_HEADER_OFFSET_PROTOCOL];
-  hdr->header_checksum = ntohs(*(uint16*) &header[IP_HEADER_OFFSET_HEADER_CSUM]);
-  hdr->source_address = ntohl(*(uint32*) &header[IP_HEADER_OFFSET_SRC_ADDR]);
-  hdr->destination_address = ntohl(*(uint32*) &header[IP_HEADER_OFFSET_DEST_ADDR]);
+  hdr->header_checksum = ntohs(*(uint16 *) &header[IP_HEADER_OFFSET_HEADER_CSUM]);
+  hdr->source_address = ntohl(*(uint32 *) &header[IP_HEADER_OFFSET_SRC_ADDR]);
+  hdr->destination_address = ntohl(*(uint32 *) &header[IP_HEADER_OFFSET_DEST_ADDR]);
 
   return 0;
 }
@@ -1037,17 +1063,17 @@ struct dhcp_reply {
 };
 
 int virtio_net_dhcp_reply_parse(void *buf, struct dhcp_reply *msg) {
-  uint8* dhcp = (uint8*) buf;
+  uint8 *dhcp = (uint8 *) buf;
   memset(msg, 0, sizeof(struct dhcp_reply));
   const uint8 dhcp_op = dhcp[DHCP_MESSAGE_OFFSET_OP];
   if (DHCP_OP_REPLY != dhcp_op) return -1;
 
-  msg->ip_address = ntohl(*(uint32*) &dhcp[DHCP_MESSAGE_OFFSET_YIADDR]);
-  const uint32 cookie = ntohl(*(uint32*) &dhcp[DHCP_MESSAGE_SIZE]);
+  msg->ip_address = ntohl(*(uint32 *) &dhcp[DHCP_MESSAGE_OFFSET_YIADDR]);
+  const uint32 cookie = ntohl(*(uint32 *) &dhcp[DHCP_MESSAGE_SIZE]);
   if (DHCP_OPTIONS_MAGIC_COOKIE != cookie) return -1;
 
   msg->type = DHCPINVALID;
-  uint8* next_option = dhcp + DHCP_MESSAGE_SIZE + sizeof(cookie);
+  uint8 *next_option = dhcp + DHCP_MESSAGE_SIZE + sizeof(cookie);
   while (DHCP_OPTION_END != *next_option) {
     const uint8 opcode = *next_option;
     if (DHCP_OPTION_MESSAGE_TYPE == opcode) {
@@ -1404,7 +1430,7 @@ void virtio_net_parse_udp_packet(void *buf) {
   uint8 *p_udp_header = (uint8 *) buf;
   struct udp_header udp_hdr;
   if (0 != virtio_net_udp_header_parse(p_udp_header, &udp_hdr)) {
-        panic("Failed to parse UDP header");
+    panic("Failed to parse UDP header");
   }
 //      udp_header_print(&udp_hdr);
   if (DHCP_PORT_CLIENT == udp_hdr.destination_port) {
@@ -1436,11 +1462,11 @@ void virtio_net_parse_udp_packet(void *buf) {
   }
 }
 
-void virtio_net_parse_ipv6_packet(void* buf) {
-  uint8 *p_ipv6_header = (uint8*) buf;
+void virtio_net_parse_ipv6_packet(void *buf) {
+  uint8 *p_ipv6_header = (uint8 *) buf;
   struct ipv6_header ipv6_hdr;
   if (0 != virtio_net_ipv6_header_parse(p_ipv6_header, &ipv6_hdr)) {
-      panic("Failed to parse IPv6 header");
+    panic("Failed to parse IPv6 header");
   }
 //    ipv6_header_print(&ipv6_hdr);
 
@@ -1450,8 +1476,8 @@ void virtio_net_parse_ipv6_packet(void* buf) {
   }
 }
 
-void virtio_net_parse_ipv4_packet(void* buf) {
-  uint8 *p_ipv4_header = (uint8*) buf;
+void virtio_net_parse_ipv4_packet(void *buf) {
+  uint8 *p_ipv4_header = (uint8 *) buf;
   struct ipv4_header ipv4_hdr;
   if (0 != virtio_net_ipv4_header_parse(p_ipv4_header, &ipv4_hdr)) {
     panic("Failed to parse IPv4 header");
@@ -1512,7 +1538,9 @@ virtio_net_intr(void) {
   release(&network.lock);
 }
 
-/** Fills DHCP message fields (except options) */
+/** Fills DHCP message fields (except options)
+ * TODO Pass struct dhcp_message_descriptor instead of many parameters
+ */
 void virtio_net_dhcp_message_write(void *buf, uint8 op, uint8 htype, uint8 hlen, uint8 hops, uint32 xid, uint16 secs,
                                    uint16 flags, uint32 ciaddr, uint32 yiaddr, uint32 siaddr, uint32 giaddr,
                                    const uint8 *chaddr, uint8 chaddr_size, const char *sname,
@@ -1646,8 +1674,8 @@ void test_virtio_net_dhcp_message_write_2() {
 
 uint16 virtio_net_dhcp_discover_write(void *buf, uint8 *client_mac_address, const char *hostname,
                                       uint32 transaction_id) {
-  virtio_net_dhcp_message_write(buf, DHCP_OP_REQUEST, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0, transaction_id, 0, 0,
-                                0, 0, 0, 0, client_mac_address, MAC_ADDRESS_LENGTH, 0, 0);
+  virtio_net_dhcp_message_write(buf, DHCP_OP_REQUEST, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0, transaction_id,
+                                0, DHCP_FLAG_BROADCAST, 0, 0, 0, 0, client_mac_address, MAC_ADDRESS_LENGTH, 0, 0);
   uint8 *ptr = (uint8 *) (buf + DHCP_MESSAGE_SIZE);
   *(uint32 *) ptr = htonl(DHCP_OPTIONS_MAGIC_COOKIE);
   ptr += sizeof(DHCP_OPTIONS_MAGIC_COOKIE);
@@ -1662,19 +1690,29 @@ uint16 virtio_net_dhcp_discover_write(void *buf, uint8 *client_mac_address, cons
   memmove(ptr, client_mac_address, MAC_ADDRESS_LENGTH);
   ptr += MAC_ADDRESS_LENGTH;
 
-  *ptr++ = DHCP_OPTION_HOSTNAME;
-  uint16 hostname_size = strlen(hostname);
-  *ptr++ = hostname_size;
-  memmove(ptr, hostname, hostname_size);
-  ptr += hostname_size;
+  uint8 parameters[] = {
+      DHCP_OPTION_SUBNET_MASK, DHCP_OPTION_ROUTER, DHCP_OPTION_DOMAIN_NAME_SERVER, DHCP_OPTION_HOSTNAME,
+      DHCP_OPTION_DOMAIN_NAME, DHCP_OPTION_INTERFACE_MTU, DHCP_OPTION_BROADCAST_ADDRESS, DHCP_OPTION_STATIC_ROUTE,
+      DHCP_OPTION_IP_ADDRESS_LEASE_TIME, DHCP_OPTION_DHCP_SERVER_ID, DHCP_OPTION_RENEWAL_TIME_VALUE,
+      DHCP_OPTION_REBINDING_TIME_VALUE, DHCP_OPTION_DOMAIN_SEARCH
+  };
+  *ptr++ = DHCP_OPTION_PARAMETER_REQUEST_LIST;
+  *ptr++ = sizeof(parameters);
+  for (int i = 0; i < sizeof(parameters); ++i) {
+    *ptr++ = parameters[i];
+  }
 
-  *ptr++ = DHCP_OPTION_CLIENT_FQDN;
-  *ptr++ = (3 + hostname_size);
+  *ptr++ = DHCP_OPTION_MESSAGE_SIZE_MAX;
+  *ptr++ = sizeof(DHCP_MESSAGE_SIZE_MAX);
+  *(uint16 *) ptr = htons(DHCP_MESSAGE_SIZE_MAX);
+  ptr += sizeof(DHCP_MESSAGE_SIZE_MAX);
+
+  *ptr++ = DHCP_OPTION_AUTO_CONFIG;
+  *ptr++ = 1;
+  *ptr++ = 1;
+
+  *ptr++ = DHCP_OPTION_RAPID_COMMIT;
   *ptr++ = 0;
-  *ptr++ = 0;
-  *ptr++ = 0;
-  memmove(ptr, hostname, hostname_size);
-  ptr += hostname_size;
 
   *ptr++ = DHCP_OPTION_END;
 
@@ -1686,7 +1724,7 @@ void test_virtio_net_dhcp_discover_write_1() {
       DHCP_OP_REQUEST, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0,
       0x00, 0x00, 0x00, 0x01, //xid
       0x00, 0x00, //secs
-      0x00, 0x00, //flags   Broadcast ?
+      0x80, 0x00, //flags   Broadcast
       0x00, 0x00, 0x00, 0x00, // ciaddr
       0x00, 0x00, 0x00, 0x00, // yiaddr
       0x00, 0x00, 0x00, 0x00, // siaddr
@@ -1733,10 +1771,28 @@ void test_virtio_net_dhcp_discover_write_1() {
       // Client-identifier
       DHCP_OPTION_CLIENT_ID, 7, DHCP_HTYPE_ETHERNET, 0x2E, 0xB8, 0x98, 0xE4, 0x7C, 0x66,
 
-      DHCP_OPTION_HOSTNAME, 9, 0x6C, 0x6F, 0x63, 0x61, 0x6C, 0x68, 0x6F, 0x73, 0x74, // localhost
+      // Parameter request list
+      DHCP_OPTION_PARAMETER_REQUEST_LIST, 13,
+      DHCP_OPTION_SUBNET_MASK,
+      DHCP_OPTION_ROUTER,
+      DHCP_OPTION_DOMAIN_NAME_SERVER,
+      DHCP_OPTION_HOSTNAME,
+      DHCP_OPTION_DOMAIN_NAME,
+      DHCP_OPTION_INTERFACE_MTU,
+      DHCP_OPTION_BROADCAST_ADDRESS,
+      DHCP_OPTION_STATIC_ROUTE,
+      DHCP_OPTION_IP_ADDRESS_LEASE_TIME,
+      DHCP_OPTION_DHCP_SERVER_ID,
+      DHCP_OPTION_RENEWAL_TIME_VALUE,
+      DHCP_OPTION_REBINDING_TIME_VALUE,
+      DHCP_OPTION_DOMAIN_SEARCH,
+      //----------------------------------------
 
-      DHCP_OPTION_CLIENT_FQDN, 12,
-      0x00, 0x00, 0x00, 0x6C, 0x6F, 0x63, 0x61, 0x6C, 0x68, 0x6F, 0x73, 0x74, // flags, A-RR, PTR-RR, localhost
+      DHCP_OPTION_MESSAGE_SIZE_MAX, 2, 0x05, 0xC0, // 1472
+
+      DHCP_OPTION_AUTO_CONFIG, 1, 1,
+
+      DHCP_OPTION_RAPID_COMMIT, 0,
 
       // End
       DHCP_OPTION_END
@@ -1751,8 +1807,10 @@ void test_virtio_net_dhcp_discover_write_1() {
       4 /* cookie */ +
       3 /* message type */ +
       9 /* client id */ +
-      11 /* hostname */ +
-      14 /* client FQDN */ +
+      15 /* parameter list */ +
+      4 /* max DHCP message size */ +
+      3 /* dhcp auto config */ +
+      2 /* rapid commit */ +
       1 /* end */;
   if (expected_message_length != length) {
     printf("test_virtio_net_dhcp_discover_write_1: wrong message length - %d expected, got %d\n",
@@ -1766,8 +1824,9 @@ void test_virtio_net_dhcp_discover_write_1() {
 
 uint16 virtio_net_dhcp_offer_write(void *buf, uint32 offered_ip_address, uint32 server_ip_address,
                                    const char *server_name, uint32 transaction_id) {
-  virtio_net_dhcp_message_write(buf, DHCP_OP_REPLY, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0, transaction_id, 0, 0, 0,
-                                offered_ip_address, server_ip_address, 0, 0, 0, server_name, 0);
+  virtio_net_dhcp_message_write(buf, DHCP_OP_REPLY, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0, transaction_id, 0, 0,
+                                IPV4_ADDRESS_NULL, offered_ip_address, server_ip_address, IPV4_ADDRESS_NULL,
+                                0, 0, server_name, 0);
 
   uint8 *ptr = (uint8 *) (buf + DHCP_MESSAGE_SIZE);
   *(uint32 *) ptr = htonl(DHCP_OPTIONS_MAGIC_COOKIE);
@@ -1787,7 +1846,7 @@ void test_virtio_net_dhcp_offer_write_1() {
       DHCP_OP_REPLY, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0,
       0x00, 0x00, 0x00, 0x07, //xid
       0x00, 0x00, //secs
-      0x00, 0x00, //flags   Broadcast ?
+      0x00, 0x00, //flags
       0x00, 0x00, 0x00, 0x00, // ciaddr
       0x9E, 0x7A, 0x6F, 0xDE, // yiaddr
       0x65, 0x63, 0xDF, 0x55, // siaddr
@@ -1852,9 +1911,9 @@ void test_virtio_net_dhcp_offer_write_1() {
 }
 
 uint16 virtio_net_dhcp_request_write(void *buf, uint8 *chaddr, uint32 requested_ip, uint32 transaction_id) {
-  virtio_net_dhcp_message_write(buf, DHCP_OP_REQUEST, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0, 0x1, 0, 0,
-                                IPV4_ADDRESS_NULL, IPV4_ADDRESS_NULL, IPV4_ADDRESS_NULL, IPV4_ADDRESS_NULL, chaddr,
-                                MAC_ADDRESS_LENGTH, 0, 0);
+  virtio_net_dhcp_message_write(buf, DHCP_OP_REQUEST, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0, 0x1, 0,
+                                DHCP_FLAG_BROADCAST, IPV4_ADDRESS_NULL, IPV4_ADDRESS_NULL, IPV4_ADDRESS_NULL,
+                                IPV4_ADDRESS_NULL, chaddr, MAC_ADDRESS_LENGTH, 0, 0);
 
   uint8 *ptr = ((uint8 *) buf) + DHCP_MESSAGE_SIZE;
 
@@ -1886,7 +1945,7 @@ void test_virtio_net_dhcp_request_write_1() {
       DHCP_OP_REQUEST, DHCP_HTYPE_ETHERNET, MAC_ADDRESS_LENGTH, 0,
       0x00, 0x00, 0x00, 0x01, //xid
       0x00, 0x00, //secs
-      0x00, 0x00, //flags   Broadcast ?
+      0x80, 0x00, //flags   Broadcast
       0x00, 0x00, 0x00, 0x00, // ciaddr
       0x00, 0x00, 0x00, 0x00, // yiaddr
       0x00, 0x00, 0x00, 0x00, // siaddr
@@ -1962,7 +2021,7 @@ void test_virtio_net_dhcp_request_write_1() {
 }
 
 void virtio_net_ipv4_header_write(void *buf, uint8 type_of_service, uint16 data_length, uint8 protocol,
-                                uint32 source_address, uint32 destination_address) {
+                                  uint32 source_address, uint32 destination_address) {
   const uint8 header_length = IP_HEADER_SIZE / sizeof(uint32);  // in 32-bit words
 
   uint8 *hdr = (uint8 *) buf;
@@ -2128,7 +2187,7 @@ void test_virtio_net_icmp_echo_write_2() {
 
 void virtio_net_send_dhcp_discover() {
   uint8 *dhcp_message = (uint8 *) kalloc();
-  const uint8 transaction_id = 1;
+  const uint32 transaction_id = get_random_uint32();
   const uint16 dhcp_message_length = virtio_net_dhcp_discover_write(dhcp_message, network.mac,
                                                                     network.hostname, transaction_id);
 
@@ -2138,7 +2197,7 @@ void virtio_net_send_dhcp_discover() {
 
   uint8 *ethernet_data = (uint8 *) kalloc();
   virtio_net_ipv4_header_write(ethernet_data, 0, dhcp_message_length + UDP_HEADER_SIZE, PROTOCOL_UDP, IPV4_ADDRESS_NULL,
-                             IPV4_ADDRESS_BROADCAST);
+                               IPV4_ADDRESS_BROADCAST);
   memmove(ethernet_data + IP_HEADER_SIZE, ip_message, UDP_HEADER_SIZE + dhcp_message_length);
 
   virtio_net_send(ethernet_data, IP_HEADER_SIZE + UDP_HEADER_SIZE + dhcp_message_length, macBroadcast);
@@ -2155,7 +2214,7 @@ void virtio_net_send_dhcp_request() {
   uint16 length = virtio_net_dhcp_request_write(dhcp_message, network.mac, network.dhcp_status.offered_ip_address, 0x1);
   virtio_net_udp_header_write(udp_header, DHCP_PORT_CLIENT, DHCP_PORT_SERVER, UDP_HEADER_SIZE + length, 0);
   virtio_net_ipv4_header_write(ip_header, 0, length + UDP_HEADER_SIZE, PROTOCOL_UDP, IPV4_ADDRESS_NULL,
-                             IPV4_ADDRESS_BROADCAST);
+                               IPV4_ADDRESS_BROADCAST);
   virtio_net_send(buf, IP_HEADER_SIZE + UDP_HEADER_SIZE + length, macBroadcast);
 }
 
