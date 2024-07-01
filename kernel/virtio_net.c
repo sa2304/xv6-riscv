@@ -1059,9 +1059,6 @@ void test_virtio_net_udp_header_parse_1() {
 #define UINT8_MAX 255
 
 struct arp_message {
-//  uint8 destination_mac[MAC_ADDRESS_LENGTH];
-//  uint8 source_mac[MAC_ADDRESS_LENGTH];
-//  uint16 protocol;
   enum { ARP_OP_REQUEST, ARP_OP_REPLY } opcode;
   uint16 hardware_address_space;
   uint16 protocol_address_space;
@@ -1073,16 +1070,34 @@ struct arp_message {
   uint8 target_protocol_address[UINT8_MAX];
 };
 
-int virtio_net_arp_message_parse(void *buf, struct arp_message *msg) {
-  //FIXME
-  return -1;
+#define ARP_MESSAGE_OFFSET_HW_ADDR_SPACE 0
+#define ARP_MESSAGE_OFFSET_PROTOCOL_ADDR_SPACE 2
+#define ARP_MESSAGE_OFFSET_HW_ADDR_LEN 4
+#define ARP_MESSAGE_OFFSET_PROTOCOL_ADDR_LEN 5
+#define ARP_MESSAGE_OFFSET_OPCODE 6
+#define ARP_MESSAGE_OFFSET_SENDER_ADDR 8
+
+int virtio_net_arp_message_parse(void *buf, struct arp_message *arp) {
+  uint8 *p = (uint8 *) buf;
+
+  arp->hardware_address_space = ntohs(*(uint16 *) &p[ARP_MESSAGE_OFFSET_HW_ADDR_SPACE]);
+  arp->protocol_address_space = ntohs(*(uint16 *) &p[ARP_MESSAGE_OFFSET_PROTOCOL_ADDR_SPACE]);
+  arp->hardware_address_size = p[ARP_MESSAGE_OFFSET_HW_ADDR_LEN];
+  arp->protocol_address_size = p[ARP_MESSAGE_OFFSET_PROTOCOL_ADDR_LEN];
+  arp->opcode = ntohs(*(uint16 *) &p[ARP_MESSAGE_OFFSET_OPCODE]);
+  memmove(arp->sender_hardware_address, &p[ARP_MESSAGE_OFFSET_SENDER_ADDR], arp->hardware_address_size);
+  const uint8* p_sender_protocol_addr = &p[ARP_MESSAGE_OFFSET_SENDER_ADDR] + arp->hardware_address_size;
+  memmove(arp->sender_protocol_address, p_sender_protocol_addr, arp->protocol_address_size);
+  const uint8* p_target_hardware_address =p_sender_protocol_addr + arp->protocol_address_size;
+  memmove(arp->target_hardware_address, p_target_hardware_address, arp->hardware_address_size);
+  const uint8* p_target_protocol_address = p_target_hardware_address + arp->hardware_address_size;
+  memmove(arp->target_protocol_address, p_target_protocol_address, arp->protocol_address_size);
+
+  return 0;
 }
 
 void test_virtio_net_arp_message_parse_1() {
   uint8 buf[] = {
-//      0x65, 0x36, 0xF6, 0xE3, 0x99, 0xED,  // destination mac
-//      0x41, 0x11, 0x59, 0x17, 0x13, 0x04,  // source mac
-//      0x08, 0x06, // protocol ARP
       0x00, 0x01, // hardware address space Ethernet
       0x08, 0x00, // protocol address space IPv4
       0x06, // hardware address length
@@ -1097,7 +1112,7 @@ void test_virtio_net_arp_message_parse_1() {
 
   int result = virtio_net_arp_message_parse(buf, &arp);
   assert_equal(0, result, "test_virtio_net_arp_message_parse_1: result must be 0");
-  assert_equal(ARP_OP_REQUEST, arp.opcode, "test_virtio_net_arp_message_parse_1: wrong opcode");
+  assert_equal(0x0001, arp.opcode, "test_virtio_net_arp_message_parse_1: wrong opcode");
   assert_equal(0x0001, arp.hardware_address_space,
                "test_virtio_net_arp_message_parse_1: wrong hardware_address_space");
   assert_equal(0x0800, arp.protocol_address_space,
@@ -1147,8 +1162,8 @@ void test_virtio_net_arp_message_parse_2() {
   struct arp_message arp;
 
   int result = virtio_net_arp_message_parse(buf, &arp);
-  assert_equal(0, result, "test_virtio_net_arp_message_parse_1: result must be 0");
-  assert_equal(ARP_OP_REPLY, arp.opcode, "test_virtio_net_arp_message_parse_1: wrong opcode");
+  assert_equal(0, result, "test_virtio_net_arp_message_parse_2: result must be 0");
+  assert_equal(0x0002, arp.opcode, "test_virtio_net_arp_message_parse_2: wrong opcode");
   assert_equal(0xDAB7, arp.hardware_address_space, "test_virtio_net_arp_message_parse_2: wrong hardware_address_space");
   assert_equal(0x435A, arp.protocol_address_space, "test_virtio_net_arp_message_parse_2: wrong protocol_address_space");
   assert_equal(0x10, arp.hardware_address_size, "test_virtio_net_arp_message_parse_2: wrong hardware_address_size");
