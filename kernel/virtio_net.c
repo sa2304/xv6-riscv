@@ -471,7 +471,6 @@ virtio_net_init(void) {
 
     network.receive.avail->ring[network.receive.avail->idx++ % NUM] = i;
   }
-  //TODO Notify queue?
 
   // tell device that I've finished setup
   status |= VIRTIO_CONFIG_S_DRIVER_OK;
@@ -717,7 +716,7 @@ void test_virtio_net_ethernet_frame_write_2() {
 }
 
 void test_virtio_net_ethernet_frame_write_3() {
-  //FIXME large data, frame exceeds midFrameSize
+  // large data, frame exceeds minFrameSize
   uint8 expected[] = {
       // Ethernet header - 14 octets
       0xcd, 0x6f, 0x4a, 0x5e, 0x62, 0x1a, // destination address
@@ -936,10 +935,10 @@ virtio_net_send(void *data, uint16 data_len, const uint8 *destination_mac) {
   struct virtio_net_hdr *hdr = (struct virtio_net_hdr *) buf;
   memset(hdr, 0, hdr_len);
   hdr->hdr_len = hdr_len;
-  //TODO Now we rely on VIRTIO_NET_F_CSUM feature and expect device to calculate checksum
-  hdr->flags = VIRTIO_NET_HDR_F_NEEDS_CSUM;
-  hdr->csum_start = ETHERNET_HEADER_SIZE + IP_HEADER_SIZE;
-  hdr->csum_offset = UDP_HEADER_OFFSET_CSUM;
+  //TODO Rely on VIRTIO_NET_F_CSUM feature and expect device to calculate checksum
+//  hdr->flags = VIRTIO_NET_HDR_F_NEEDS_CSUM;
+//  hdr->csum_start = ETHERNET_HEADER_SIZE + IP_HEADER_SIZE;
+//  hdr->csum_offset = UDP_HEADER_OFFSET_CSUM;
 
   virtio_net_ethernet_frame_write(buf + hdr_len, data, data_len, destination_mac, network.mac, ETHERNET_TYPE_IPV4);
   printf("virtio_net_send: frame made\n");
@@ -1679,7 +1678,7 @@ virtio_net_intr(void) {
   }
   wakeup(&network.is_transmit_done[0]);
 
-  //FIXME handle received packets
+  // handle received packets
 //  printf("[R] network.receive.used->idx = %d\n", network.receive.used->idx);
   while (network.receive_used_idx < network.receive.used->idx) {
 //    printf("---------------------- RECEIVED PACKET -----------------------------------------\n");
@@ -1739,8 +1738,6 @@ void virtio_net_dhcp_message_write(void *buf, uint8 op, uint8 htype, uint8 hlen,
     uint8 boot_file_name_size = MIN(strlen(boot_file_name), DHCP_MESSAGE_BOOT_FILE_NAME_SIZE_MAX);
     strncpy((char *) &msg[DHCP_MESSAGE_OFFSET_BOOT_FILE_NAME], boot_file_name, boot_file_name_size);
   }
-
-  //FIXME Implement other DHCP-message constructors which write required options
 }
 
 void test_virtio_net_dhcp_message_write_1() {
@@ -2390,7 +2387,6 @@ sys_test_virtio_net_send(void) {
 
 uint64
 sys_ping(void) {
-  //FIXME Is there any error possible when we pass uint32 ip address as a signed int?
   // Parse IP address from syscall argument and ping host
   int ip;
   argint(0, &ip);
