@@ -156,38 +156,6 @@ void assert_memory_equal(void *v1, void *v2, int n, const char *error_message_pr
   }
 }
 
-void test_virtio_net_dhcp_request_write_1();
-void test_virtio_net_make_ip_address_1();
-void test_virtio_net_make_ip_address_2();
-void test_virtio_net_dhcp_message_write_1();
-void test_virtio_net_dhcp_message_write_2();
-void test_virtio_net_udp_header_write_1();
-void test_virtio_net_udp_header_write_2();
-void test_virtio_net_ipv4_header_write_1();
-void test_virtio_net_ipv4_header_write_2();
-void test_virtio_net_ethernet_header_write_1();
-void test_virtio_net_ethernet_header_write_2();
-void test_virtio_net_ethernet_header_parse_1();
-void test_virtio_net_ethernet_frame_write_1();
-void test_virtio_net_ethernet_frame_write_2();
-void test_virtio_net_ethernet_frame_write_3();
-void test_virtio_net_dhcp_discover_write_1();
-void test_virtio_net_dhcp_offer_write_1();
-void test_virtio_net_ipv4_header_parse_1();
-void test_virtio_net_ipv4_header_parse_2();
-void test_virtio_net_ipv6_header_parse_1();
-void test_virtio_net_icmp_echo_write_1();
-void test_virtio_net_icmp_echo_write_2();
-void test_virtio_net_udp_header_parse_1();
-void test_virtio_net_dhcp_reply_parse_offer_1();
-void test_virtio_net_dhcp_reply_parse_offer_2();
-void test_virtio_net_dhcp_reply_parse_ack_1();
-void test_virtio_net_dhcp_reply_parse_ack_2();
-void test_virtio_net_dhcp_reply_parse_nak_1();
-void test_virtio_net_dhcp_reply_parse_nak_2();
-void test_virtio_net_arp_message_parse_1();
-void test_virtio_net_arp_message_parse_2();
-
 uint32 htonl(uint32 hostlong) {
   return
       (hostlong & 0xFF) << 24 |
@@ -403,131 +371,6 @@ free_desc(struct virtio_net_queue *queue, uint32 i) {
   desc->next = 0;
   queue->is_free[i] = 1;
   wakeup(&queue->is_free[0]);
-}
-
-void
-virtio_net_init(void) {
-  uint32 status = 0;
-
-  initlock(&network.lock, "virtio_net");
-  network.transmit_used_idx = 0;
-  network.receive_used_idx = 0;
-  network.hostname = "localhost.localdomain";
-
-  if (*R1(VIRTIO_MMIO_MAGIC_VALUE) != 0x74726976 ||
-      *R1(VIRTIO_MMIO_VERSION) != 2 ||
-      *R1(VIRTIO_MMIO_DEVICE_ID) != 1 ||
-      *R1(VIRTIO_MMIO_VENDOR_ID) != 0x554d4551) {
-    panic("could not find virtio net");
-  }
-
-  // reset device
-  *R1(VIRTIO_MMIO_STATUS) = status;
-
-  // guest OS saw the device
-  status |= VIRTIO_CONFIG_S_ACKNOWLEDGE;
-  *R1(VIRTIO_MMIO_STATUS) = status;
-
-  // tell device I can drive
-  status |= VIRTIO_CONFIG_S_DRIVER;
-  *R1(VIRTIO_MMIO_STATUS) = status;
-
-  // enable features that I support
-  //A truly minimal driver would only accept VIRTIO_NET_F_MAC and ignore everything else.
-  *R1(VIRTIO_MMIO_DRIVER_FEATURES) = VIRTIO_NET_F_MAC /*| VIRTIO_NET_F_CSUM*/;
-
-  // tell device that I'm done with features
-  status |= VIRTIO_CONFIG_S_FEATURES_OK;
-  *R1(VIRTIO_MMIO_STATUS) = status;
-
-  // make sure that device accepted my features choice
-  status = *R1(VIRTIO_MMIO_STATUS);
-  if (!(status & VIRTIO_CONFIG_S_FEATURES_OK))
-    panic("virtio net FEATURES_OK unset");
-
-  // read device MAC address
-  const struct virtio_net_config *config = (const struct virtio_net_config *) R1(VIRTIO_MMIO_CONFIG);
-  printf("MAC = ");
-  for (int i = 0; i < MAC_ADDRESS_LENGTH; ++i) {
-    network.mac[i] = config->mac[i];
-    if (0 == i) printf("%x", config->mac[i]);
-    else printf(":%x", config->mac[i]);
-  }
-  printf("\n");
-
-  virtio_net_queue_init(0, &network.receive);
-  virtio_net_queue_init(1, &network.transmit);
-  memset(network.is_transmit_done, 0, NUM);
-
-  // populate receive queue with buffers
-  for (int i = 0; i < NUM; ++i) {
-    struct virtq_desc *desc = &network.receive.desc[i];
-    void *buf = kalloc();
-    memset(buf, 0, PGSIZE);
-    desc->addr = (uint64) buf;
-    desc->len = PGSIZE;
-    desc->flags = VRING_DESC_F_WRITE;
-    desc->next = 0;
-
-    network.receive.avail->ring[network.receive.avail->idx++ % NUM] = i;
-  }
-
-  // tell device that I've finished setup
-  status |= VIRTIO_CONFIG_S_DRIVER_OK;
-  *R1(VIRTIO_MMIO_STATUS) = status;
-
-  test_htonl_1();
-  test_htonl_2();
-
-  test_htons_1();
-  test_htons_2();
-
-  test_ntohl_1();
-  test_ntohl_2();
-
-  test_ntohs_1();
-  test_ntohs_2();
-
-  test_virtio_net_make_ip_address_1();
-  test_virtio_net_make_ip_address_2();
-
-  test_virtio_net_ethernet_header_write_1();
-  test_virtio_net_ethernet_header_write_2();
-  test_virtio_net_ethernet_header_parse_1();
-
-  test_virtio_net_ipv4_header_write_1();
-  test_virtio_net_ipv4_header_write_2();
-  test_virtio_net_ipv4_header_parse_1();
-  test_virtio_net_ipv4_header_parse_2();
-  test_virtio_net_ipv6_header_parse_1();
-
-  test_virtio_net_udp_header_write_1();
-  test_virtio_net_udp_header_write_2();
-  test_virtio_net_udp_header_parse_1();
-
-  test_virtio_net_dhcp_message_write_1();
-  test_virtio_net_dhcp_message_write_2();
-  test_virtio_net_dhcp_discover_write_1();
-  test_virtio_net_dhcp_offer_write_1();
-  test_virtio_net_dhcp_request_write_1();
-  test_virtio_net_dhcp_reply_parse_offer_1();
-  test_virtio_net_dhcp_reply_parse_offer_2();
-  test_virtio_net_dhcp_reply_parse_ack_1();
-  test_virtio_net_dhcp_reply_parse_ack_2();
-  test_virtio_net_dhcp_reply_parse_nak_1();
-  test_virtio_net_dhcp_reply_parse_nak_2();
-
-  test_virtio_net_icmp_echo_write_1();
-  test_virtio_net_icmp_echo_write_2();
-
-  test_virtio_net_ethernet_frame_write_1();
-  test_virtio_net_ethernet_frame_write_2();
-  test_virtio_net_ethernet_frame_write_3();
-
-  test_virtio_net_arp_message_parse_1();
-  test_virtio_net_arp_message_parse_2();
-
-  printf("virtio-net tests passed\n");
 }
 
 void virtio_net_ethernet_header_write(void *buf, const uint8 *destination_mac, const uint8 *source_mac, uint16 type) {
@@ -2450,4 +2293,129 @@ sys_dhcp_request(void) {
   }
 
   return 0;
+}
+
+void
+virtio_net_init(void) {
+  uint32 status = 0;
+
+  initlock(&network.lock, "virtio_net");
+  network.transmit_used_idx = 0;
+  network.receive_used_idx = 0;
+  network.hostname = "localhost.localdomain";
+
+  if (*R1(VIRTIO_MMIO_MAGIC_VALUE) != 0x74726976 ||
+      *R1(VIRTIO_MMIO_VERSION) != 2 ||
+      *R1(VIRTIO_MMIO_DEVICE_ID) != 1 ||
+      *R1(VIRTIO_MMIO_VENDOR_ID) != 0x554d4551) {
+    panic("could not find virtio net");
+  }
+
+  // reset device
+  *R1(VIRTIO_MMIO_STATUS) = status;
+
+  // guest OS saw the device
+  status |= VIRTIO_CONFIG_S_ACKNOWLEDGE;
+  *R1(VIRTIO_MMIO_STATUS) = status;
+
+  // tell device I can drive
+  status |= VIRTIO_CONFIG_S_DRIVER;
+  *R1(VIRTIO_MMIO_STATUS) = status;
+
+  // enable features that I support
+  //A truly minimal driver would only accept VIRTIO_NET_F_MAC and ignore everything else.
+  *R1(VIRTIO_MMIO_DRIVER_FEATURES) = VIRTIO_NET_F_MAC /*| VIRTIO_NET_F_CSUM*/;
+
+  // tell device that I'm done with features
+  status |= VIRTIO_CONFIG_S_FEATURES_OK;
+  *R1(VIRTIO_MMIO_STATUS) = status;
+
+  // make sure that device accepted my features choice
+  status = *R1(VIRTIO_MMIO_STATUS);
+  if (!(status & VIRTIO_CONFIG_S_FEATURES_OK))
+    panic("virtio net FEATURES_OK unset");
+
+  // read device MAC address
+  const struct virtio_net_config *config = (const struct virtio_net_config *) R1(VIRTIO_MMIO_CONFIG);
+  printf("MAC = ");
+  for (int i = 0; i < MAC_ADDRESS_LENGTH; ++i) {
+    network.mac[i] = config->mac[i];
+    if (0 == i) printf("%x", config->mac[i]);
+    else printf(":%x", config->mac[i]);
+  }
+  printf("\n");
+
+  virtio_net_queue_init(0, &network.receive);
+  virtio_net_queue_init(1, &network.transmit);
+  memset(network.is_transmit_done, 0, NUM);
+
+  // populate receive queue with buffers
+  for (int i = 0; i < NUM; ++i) {
+    struct virtq_desc *desc = &network.receive.desc[i];
+    void *buf = kalloc();
+    memset(buf, 0, PGSIZE);
+    desc->addr = (uint64) buf;
+    desc->len = PGSIZE;
+    desc->flags = VRING_DESC_F_WRITE;
+    desc->next = 0;
+
+    network.receive.avail->ring[network.receive.avail->idx++ % NUM] = i;
+  }
+
+  // tell device that I've finished setup
+  status |= VIRTIO_CONFIG_S_DRIVER_OK;
+  *R1(VIRTIO_MMIO_STATUS) = status;
+
+  test_htonl_1();
+  test_htonl_2();
+
+  test_htons_1();
+  test_htons_2();
+
+  test_ntohl_1();
+  test_ntohl_2();
+
+  test_ntohs_1();
+  test_ntohs_2();
+
+  test_virtio_net_make_ip_address_1();
+  test_virtio_net_make_ip_address_2();
+
+  test_virtio_net_ethernet_header_write_1();
+  test_virtio_net_ethernet_header_write_2();
+  test_virtio_net_ethernet_header_parse_1();
+
+  test_virtio_net_ipv4_header_write_1();
+  test_virtio_net_ipv4_header_write_2();
+  test_virtio_net_ipv4_header_parse_1();
+  test_virtio_net_ipv4_header_parse_2();
+  test_virtio_net_ipv6_header_parse_1();
+
+  test_virtio_net_udp_header_write_1();
+  test_virtio_net_udp_header_write_2();
+  test_virtio_net_udp_header_parse_1();
+
+  test_virtio_net_dhcp_message_write_1();
+  test_virtio_net_dhcp_message_write_2();
+  test_virtio_net_dhcp_discover_write_1();
+  test_virtio_net_dhcp_offer_write_1();
+  test_virtio_net_dhcp_request_write_1();
+  test_virtio_net_dhcp_reply_parse_offer_1();
+  test_virtio_net_dhcp_reply_parse_offer_2();
+  test_virtio_net_dhcp_reply_parse_ack_1();
+  test_virtio_net_dhcp_reply_parse_ack_2();
+  test_virtio_net_dhcp_reply_parse_nak_1();
+  test_virtio_net_dhcp_reply_parse_nak_2();
+
+  test_virtio_net_icmp_echo_write_1();
+  test_virtio_net_icmp_echo_write_2();
+
+  test_virtio_net_ethernet_frame_write_1();
+  test_virtio_net_ethernet_frame_write_2();
+  test_virtio_net_ethernet_frame_write_3();
+
+  test_virtio_net_arp_message_parse_1();
+  test_virtio_net_arp_message_parse_2();
+
+  printf("virtio-net tests passed\n");
 }
