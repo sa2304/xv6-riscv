@@ -11,11 +11,11 @@ SECTIONS
 
   .text : {
     *(.text .text.*)
-    . = ALIGN(0x200000);
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
     _trampoline = .;
     *(trampsec)
-    . = ALIGN(0x200000);
-    ASSERT(. - _trampoline == 0x200000, "error: trampoline larger than one page");
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
+    ASSERT(. - _trampoline == CONSTANT(MAXPAGESIZE), "error: trampoline larger than one page");
     PROVIDE(etext = .);
   }
 
@@ -26,6 +26,7 @@ SECTIONS
     *(.rodata .rodata.*)
   }
 
+  . = ALIGN(CONSTANT(MAXPAGESIZE));
   .data : {
     . = ALIGN(16);
     *(.sdata .sdata.*) /* do not need to distinguish this from .data */
